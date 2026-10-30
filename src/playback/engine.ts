@@ -39,7 +39,7 @@ export interface Layer {
  * Pictures laid over the tracks below with their transparency and no background of their own: text, and
  * images with see-through pixels (stickers, logos). The export treats the same assets the same way.
  */
-export const isSeeThrough = (asset: MediaAsset) => asset.type === "image" && (!!asset.text || !!asset.alpha);
+export const isSeeThrough = (asset: MediaAsset) => asset.type !== "audio" && (!!asset.text || !!asset.alpha);
 
 export function layersAt(project: Project, t: number, horizon = PRELOAD_SECONDS): Layer[] {
   const assets = new Map(project.assets.map((a) => [a.id, a]));

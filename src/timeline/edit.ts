@@ -516,6 +516,11 @@ export function setClipReversed(project: Project, clipId: string, reversed: bool
   if (!found) return fail("unknown-clip", `Unknown clip ${clipId}`);
   const asset = project.assets.find((a) => a.id === found.clip.assetId);
   if (asset?.type === "image") return fail("out-of-range", "Images cannot be reversed");
+  if (reversed && asset?.type === "video" && asset.alpha)
+    return fail(
+      "out-of-range",
+      "Transparent subject videos must play forwards. Use the original video for reverse edits.",
+    );
   if ((found.clip.reversed ?? false) === reversed) return ok(project);
   return ok(
     withTracks(

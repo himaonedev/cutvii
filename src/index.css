@@ -5,6 +5,7 @@
 
 /* CutVii design tokens — black & orange. Single source of truth; Tailwind and shadcn read from here. */
 :root {
+  color-scheme: dark;
   --bg: #0b0b0c;
   --surface-1: #141416;
   --surface-2: #1c1c1f;

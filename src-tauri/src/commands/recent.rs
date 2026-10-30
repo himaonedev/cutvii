@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use serde::Serialize;
 use tauri::menu::{MenuItemBuilder, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Manager, Wry};
 
@@ -20,6 +21,46 @@ pub struct RecentProjects {
     pub paths: Mutex<Vec<PathBuf>>,
     /// The Open Recent submenu, once the menu bar is built.
     pub menu: Mutex<Option<Submenu<Wry>>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentProject {
+    index: usize,
+    name: String,
+    path: String,
+    exists: bool,
+    modified_at: Option<u64>,
+}
+
+fn describe(paths: &[PathBuf]) -> Vec<RecentProject> {
+    paths
+        .iter()
+        .enumerate()
+        .map(|(index, path)| {
+            let metadata = std::fs::metadata(path).ok();
+            RecentProject {
+                index,
+                name: path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| label(path)),
+                path: path.to_string_lossy().into_owned(),
+                exists: metadata.as_ref().is_some_and(|m| m.is_file()),
+                modified_at: metadata
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs()),
+            }
+        })
+        .collect()
+}
+
+/// Describe only the backend-owned recent list. Opening still resolves its index in Rust.
+#[tauri::command]
+pub fn recent_projects(state: tauri::State<'_, RecentProjects>) -> Vec<RecentProject> {
+    let paths = state.paths.lock().unwrap().clone();
+    describe(&paths)
 }
 
 /// `list` with `path` moved (or added) to the front, at most `MAX_RECENT` long.
@@ -168,6 +209,23 @@ pub fn refresh_menu(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn home_cards_preserve_indices_and_report_file_metadata_and_missing_paths() {
+        let existing = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let missing = existing.with_file_name("missing-home-test-project.cutvii");
+        let cards = describe(&[existing.clone(), missing.clone()]);
+        assert_eq!(cards[0].index, 0);
+        assert_eq!(cards[0].name, "Cargo");
+        assert_eq!(cards[0].path, existing.to_string_lossy());
+        assert!(cards[0].exists);
+        assert!(cards[0].modified_at.is_some());
+        assert_eq!(cards[1].index, 1);
+        assert!(!cards[1].exists);
+        assert!(cards[1].modified_at.is_none());
+        let json = serde_json::to_value(&cards[0]).unwrap();
+        assert!(json.get("modifiedAt").is_some());
+    }
 
     fn p(s: &str) -> PathBuf {
         PathBuf::from(abs(s))

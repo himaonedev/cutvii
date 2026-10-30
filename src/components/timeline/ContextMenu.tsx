@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Captions, ClipboardCopy, Copy, Film, Scissors, Snowflake, Sparkles, Trash2 } from "lucide-react";
 
 export interface MenuState {
@@ -21,6 +22,7 @@ interface Props {
   /** Present for a text clip: save the texts of its track as a `.srt` file. */
   onSrt?: () => void;
   onResplit?: () => void;
+  onMotion?: () => void;
   onClose: () => void;
 }
 
@@ -35,8 +37,28 @@ export function ContextMenu({
   onClips,
   onSrt,
   onResplit,
+  onMotion,
   onClose,
 }: Props) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ left: menu.x, top: menu.y });
+  useLayoutEffect(() => {
+    const place = () => {
+      const bounds = ref.current?.getBoundingClientRect();
+      if (!bounds) return;
+      const gap = 8;
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const top = menu.y + bounds.height > height - gap ? menu.y - bounds.height : menu.y;
+      setPosition({
+        left: Math.max(gap, Math.min(menu.x, width - bounds.width - gap)),
+        top: Math.max(gap, Math.min(top, height - bounds.height - gap)),
+      });
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [menu.x, menu.y]);
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
       if (!(e.target as HTMLElement | null)?.closest("[data-context-menu]")) onClose();
@@ -54,13 +76,14 @@ export function ContextMenu({
 
   const item =
     "flex h-9 w-full items-center gap-2 rounded-sm px-2 text-left text-sm hover:bg-accent-soft pointer-coarse:h-11";
-  return (
+  return createPortal(
     <div
+      ref={ref}
       role="menu"
       data-context-menu
       aria-label="Clip actions"
-      className="fixed z-50 min-w-44 rounded-md border bg-popover p-1 shadow-lg"
-      style={{ left: menu.x, top: menu.y }}
+      className="fixed z-50 min-w-44 overflow-y-auto overscroll-contain rounded-md border bg-popover p-1 shadow-lg"
+      style={{ ...position, maxHeight: "calc(100dvh - 16px)", maxWidth: "calc(100vw - 16px)" }}
     >
       <button role="menuitem" className={item} onClick={onSplit}>
         <Scissors className="size-4" /> Split at playhead
@@ -78,6 +101,11 @@ export function ContextMenu({
         <Copy className="size-4" /> Copy
         <kbd className="ml-auto text-xs text-text-muted">Ctrl/⌘ C</kbd>
       </button>
+      {onMotion && (
+        <button role="menuitem" className={item} onClick={onMotion}>
+          <Sparkles className="size-4 text-accent" /> Motion presets…
+        </button>
+      )}
       {onAi && (
         <button role="menuitem" className={item} onClick={onAi}>
           <Sparkles className="size-4 text-accent" /> Subtitles with AI…
@@ -102,6 +130,7 @@ export function ContextMenu({
         <Trash2 className="size-4" /> Delete
         <kbd className="ml-auto text-xs text-text-muted">Del</kbd>
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 }

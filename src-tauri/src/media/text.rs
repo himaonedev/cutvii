@@ -123,6 +123,8 @@ pub enum BoxShape {
     /// Every line gets its own box, as wide as that line, with no gap between lines.
     #[serde(rename = "per-line")]
     PerLine,
+    #[serde(rename = "per-word")]
+    PerWord,
     /// A box whose left and right edges are cut into a zigzag.
     #[serde(rename = "jagged")]
     Jagged,
@@ -131,6 +133,8 @@ pub enum BoxShape {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TextBox {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<f64>,
     pub color: String,
     /// 0 to 1.
     pub opacity: f64,
@@ -157,6 +161,21 @@ pub enum HighlightLines {
 pub struct TextHighlight {
     pub color: String,
     pub lines: HighlightLines,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub word: Option<WordHighlight>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WordHighlight {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<f64>,
+    pub index: usize,
+    pub box_color: String,
+    pub opacity: f64,
+    pub padding: f64,
+    pub radius: f64,
+    pub max_words: usize,
 }
 
 fn parse_color(hex: &str) -> Option<(u8, u8, u8)> {
@@ -207,6 +226,22 @@ impl TextSpec {
         }
         let unit = |v: f64| (0.0..=1.0).contains(&v);
         if self
+            .highlight
+            .as_ref()
+            .and_then(|h| h.word.as_ref())
+            .is_some_and(|w| {
+                w.index > 1999
+                    || !(1..=8).contains(&w.max_words)
+                    || parse_color(&w.box_color).is_none()
+                    || !unit(w.opacity)
+                    || !unit(w.padding)
+                    || !unit(w.radius)
+                    || w.rotation.is_some_and(|r| !(-45.0..=45.0).contains(&r))
+            })
+        {
+            return fail("the active word highlight values are out of range");
+        }
+        if self
             .outline
             .as_ref()
             .is_some_and(|o| !(o.width > 0.0 && o.width <= 0.5))
@@ -218,11 +253,12 @@ impl TextSpec {
         }) {
             return fail("the shadow values are out of range");
         }
-        if self
-            .backdrop
-            .as_ref()
-            .is_some_and(|b| !unit(b.opacity) || !unit(b.padding) || !unit(b.radius))
-        {
+        if self.backdrop.as_ref().is_some_and(|b| {
+            !unit(b.opacity)
+                || !unit(b.padding)
+                || !unit(b.radius)
+                || b.rotation.is_some_and(|r| !(-45.0..=45.0).contains(&r))
+        }) {
             return fail("the box values are out of range");
         }
         Ok(())
@@ -559,6 +595,9 @@ pub fn render(spec: &TextSpec, width: u32, height: u32) -> AppResult<Vec<u8>> {
         })
         .collect();
     let in_accent = highlighted(lines.len(), spec.highlight.as_ref().map(|h| h.lines));
+    let word = spec.highlight.as_ref().and_then(|h| h.word.as_ref());
+    let mut word_boxes = Vec::new();
+    let mut all_word_boxes = Vec::new();
 
     // the letters: one coverage mask for the text colour, one for the highlight colour
     let mut base_mask = vec![0u8; w * h];
@@ -569,12 +608,63 @@ pub fn render(spec: &TextSpec, width: u32, height: u32) -> AppResult<Vec<u8>> {
         .filter(|run| !run.glyphs.is_empty())
         .enumerate()
     {
-        let mask = if in_accent[index] {
-            &mut accent_mask
-        } else {
-            &mut base_mask
-        };
+        let offset: usize = spec
+            .content
+            .lines()
+            .take(run.line_i)
+            .map(|s| s.split_whitespace().count())
+            .sum();
+        let mut cursor = 0;
+        let spans: Vec<_> = run
+            .text
+            .split_whitespace()
+            .map(|s| {
+                let start = cursor + run.text[cursor..].find(s).unwrap();
+                cursor = start + s.len();
+                (start, cursor)
+            })
+            .collect();
+        let selected = word
+            .and_then(|w| w.index.checked_sub(offset))
+            .and_then(|i| spans.get(i));
+        if spec
+            .backdrop
+            .as_ref()
+            .is_some_and(|b| b.shape == BoxShape::PerWord)
+        {
+            for &(a, b) in &spans {
+                let glyphs: Vec<_> = run
+                    .glyphs
+                    .iter()
+                    .filter(|g| g.start < b && g.end > a)
+                    .collect();
+                if !glyphs.is_empty() {
+                    all_word_boxes.push(Rect {
+                        x0: left as f32 + glyphs.iter().map(|g| g.x).fold(f32::MAX, f32::min),
+                        x1: left as f32 + glyphs.iter().map(|g| g.x + g.w).fold(f32::MIN, f32::max),
+                        y0: top as f32 + run.line_top,
+                        y1: top as f32 + run.line_top + run.line_height,
+                    });
+                }
+            }
+        }
+        let mut bounds: Option<(f32, f32)> = None;
         for glyph in run.glyphs {
+            let active = if word.is_some() {
+                selected.is_some_and(|&(a, b)| glyph.start < b && glyph.end > a)
+            } else {
+                in_accent[index]
+            };
+            if word.is_some() && active {
+                bounds = Some(bounds.map_or((glyph.x, glyph.x + glyph.w), |(a, b)| {
+                    (a.min(glyph.x), b.max(glyph.x + glyph.w))
+                }));
+            }
+            let mask = if active {
+                &mut accent_mask
+            } else {
+                &mut base_mask
+            };
             let placed = glyph.physical((0.0, run.line_y), 1.0);
             cache.with_pixels(font_system, placed.cache_key, white, |x, y, color| {
                 let alpha = color.a() as u32;
@@ -590,11 +680,22 @@ pub fn render(spec: &TextSpec, width: u32, height: u32) -> AppResult<Vec<u8>> {
                 *slot = (alpha + *slot as u32 * (255 - alpha) / 255).min(255) as u8;
             });
         }
+        if let Some((x0, x1)) = bounds {
+            word_boxes.push(Rect {
+                x0: left as f32 + x0,
+                x1: left as f32 + x1,
+                y0: top as f32 + run.line_top,
+                y1: top as f32 + run.line_top + run.line_height,
+            });
+        }
     }
     drop(guard);
 
     let mut pixels = vec![0u8; w * h * 4];
-    let styled = spec.outline.is_some() || spec.shadow.is_some() || spec.backdrop.is_some();
+    let styled = spec.outline.is_some()
+        || spec.shadow.is_some()
+        || spec.backdrop.is_some()
+        || word.is_some();
     if !styled {
         // plain text: the colour everywhere it is drawn, the coverage as alpha
         for i in 0..w * h {
@@ -626,9 +727,22 @@ pub fn render(spec: &TextSpec, width: u32, height: u32) -> AppResult<Vec<u8>> {
         .backdrop
         .as_ref()
         .map_or(0.0, |b| b.padding as f32 * size);
+    let effect_pad = pad_px.max(word.map_or(0.0, |w| w.padding as f32 * size));
+    let angle = spec
+        .backdrop
+        .as_ref()
+        .and_then(|b| b.rotation)
+        .unwrap_or(0.0)
+        .abs()
+        .max(word.and_then(|w| w.rotation).unwrap_or(0.0).abs()) as f32;
+    let block_width = lines.iter().map(|l| l.x1).fold(f32::MIN, f32::max)
+        - lines.iter().map(|l| l.x0).fold(f32::MAX, f32::min);
+    let rotation_reach =
+        (block_width + block_height + 4.0 * size) * 0.5 * angle.to_radians().sin().abs();
     let reach = (outline_px
         + blur_px * 3.0
-        + pad_px
+        + effect_pad
+        + rotation_reach
         + shift.0.abs().max(shift.1.abs()) as f32
         + size * 0.5)
         .ceil() as i64
@@ -682,19 +796,23 @@ pub fn render(spec: &TextSpec, width: u32, height: u32) -> AppResult<Vec<u8>> {
             y1: r.y1 + y,
         };
         match b.shape {
-            BoxShape::Rect => text_fx::rounded_rect(
+            BoxShape::Rect => text_fx::rotated_box(
                 &mut cover,
                 rw,
                 rh,
                 local(grown(block, pad_px, pad_px * 0.5)),
                 radius,
+                b.rotation.unwrap_or(0.0) as f32,
+                None,
             ),
-            BoxShape::Jagged => text_fx::jagged_rect(
+            BoxShape::Jagged => text_fx::rotated_box(
                 &mut cover,
                 rw,
                 rh,
                 local(grown(block, pad_px, pad_px * 0.5)),
-                size * 0.16,
+                radius,
+                b.rotation.unwrap_or(0.0) as f32,
+                Some(size * 0.16),
             ),
             // one box per line, as wide as the line; lines touch, so there is no gap between the boxes
             BoxShape::PerLine => {
@@ -710,7 +828,28 @@ pub fn render(spec: &TextSpec, width: u32, height: u32) -> AppResult<Vec<u8>> {
                                 0.0
                             },
                     };
-                    text_fx::rounded_rect(&mut cover, rw, rh, local(r), radius);
+                    text_fx::rotated_box(
+                        &mut cover,
+                        rw,
+                        rh,
+                        local(r),
+                        radius,
+                        b.rotation.unwrap_or(0.0) as f32,
+                        None,
+                    );
+                }
+            }
+            BoxShape::PerWord => {
+                for r in &all_word_boxes {
+                    text_fx::rotated_box(
+                        &mut cover,
+                        rw,
+                        rh,
+                        local(grown(*r, pad_px, pad_px * 0.5)),
+                        radius,
+                        b.rotation.unwrap_or(0.0) as f32,
+                        None,
+                    );
                 }
             }
         }
@@ -718,6 +857,31 @@ pub fn render(spec: &TextSpec, width: u32, height: u32) -> AppResult<Vec<u8>> {
             &cover,
             parse_color(&b.color).expect("validated"),
             b.opacity as f32,
+        );
+    }
+    if let Some(word) = word {
+        let mut cover = vec![0.0; rw * rh];
+        let pad = word.padding as f32 * size;
+        for r in word_boxes {
+            text_fx::rotated_box(
+                &mut cover,
+                rw,
+                rh,
+                local(Rect {
+                    x0: r.x0 - pad,
+                    x1: r.x1 + pad,
+                    y0: r.y0 - pad * 0.5,
+                    y1: r.y1 + pad * 0.5,
+                }),
+                word.radius as f32 * size,
+                word.rotation.unwrap_or(0.0) as f32,
+                None,
+            );
+        }
+        picture.paint(
+            &cover,
+            parse_color(&word.box_color).expect("validated"),
+            word.opacity as f32,
         );
     }
     let outlined = spec
@@ -1081,6 +1245,100 @@ mod tests {
             x: 0.5,
             y: 0.5,
         }
+    }
+
+    #[test]
+    fn active_word_boxes_move_without_moving_the_phrase_and_keep_custom_colours() {
+        let mut s = spec("nggak saya");
+        s.color = "#FFFFFF".into();
+        s.backdrop = Some(TextBox {
+            rotation: None,
+            color: "#112233".into(),
+            opacity: 1.0,
+            shape: BoxShape::Rect,
+            padding: 0.3,
+            radius: 0.2,
+        });
+        s.highlight = Some(TextHighlight {
+            color: "#000000".into(),
+            lines: HighlightLines::Last,
+            word: Some(WordHighlight {
+                rotation: None,
+                index: 0,
+                box_color: "#FFCC00".into(),
+                opacity: 1.0,
+                padding: 0.12,
+                radius: 0.2,
+                max_words: 3,
+            }),
+        });
+        let first = render(&s, W, H).unwrap();
+        s.highlight.as_mut().unwrap().word.as_mut().unwrap().index = 1;
+        let second = render(&s, W, H).unwrap();
+        let centroid = |pixels: &[u8]| {
+            let xs: Vec<usize> = pixels
+                .chunks_exact(4)
+                .enumerate()
+                .filter(|(_, p)| {
+                    p[0] > 245 && (195..=210).contains(&p[1]) && p[2] < 5 && p[3] > 250
+                })
+                .map(|(i, _)| i % W as usize)
+                .collect();
+            assert!(xs.len() > 200, "custom highlight box is painted");
+            xs.iter().sum::<usize>() / xs.len()
+        };
+        assert!(centroid(&first) < centroid(&second));
+        assert_eq!(
+            ink(&first).0,
+            ink(&second).0,
+            "the phrase and base box stay fixed"
+        );
+        assert_ne!(first, second);
+        for text in ["café\n世界 saya", "a caption wrapping onto multiple lines"] {
+            s.content = text.into();
+            s.wrap = Some(0.3);
+            assert_eq!(render(&s, W, H).unwrap().len(), (W * H * 4) as usize);
+        }
+        s.highlight.as_mut().unwrap().word.as_mut().unwrap().radius = f64::NAN;
+        assert!(s.validate().is_err());
+    }
+
+    #[test]
+    fn per_word_boxes_leave_gaps_and_rotation_does_not_rotate_the_letters() {
+        let mut s = spec("ONE     TWO");
+        s.color = "#FFFFFF".into();
+        s.backdrop = Some(TextBox {
+            rotation: None,
+            color: "#FF0000".into(),
+            opacity: 1.0,
+            shape: BoxShape::Rect,
+            padding: 0.0,
+            radius: 0.0,
+        });
+        let whole = render(&s, W, H).unwrap();
+        s.backdrop.as_mut().unwrap().shape = BoxShape::PerWord;
+        let separate = render(&s, W, H).unwrap();
+        assert_eq!(px(&whole, W / 2, H / 2), (255, 0, 0, 255));
+        assert_eq!(
+            px(&separate, W / 2, H / 2).3,
+            0,
+            "no box fills the space between words"
+        );
+        s.backdrop.as_mut().unwrap().rotation = Some(-15.0);
+        let tilted = render(&s, W, H).unwrap();
+        let letters = |p: &[u8]| {
+            p.chunks_exact(4)
+                .enumerate()
+                .filter(|(_, v)| v[0] == 255 && v[1] == 255 && v[2] == 255 && v[3] == 255)
+                .map(|(i, _)| i)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(letters(&separate), letters(&tilted), "only the boxes tilt");
+        assert_ne!(separate, tilted);
+        let encoded = serde_json::to_string(&s).unwrap();
+        assert_eq!(serde_json::from_str::<TextSpec>(&encoded).unwrap(), s);
+        s.backdrop.as_mut().unwrap().rotation = Some(46.0);
+        assert!(s.validate().is_err());
     }
 
     #[test]
@@ -1588,6 +1846,7 @@ mod tests {
         let boxed = |shape: BoxShape| {
             styled("wide line here\nshort", |s| {
                 s.backdrop = Some(TextBox {
+                    rotation: None,
                     color: "#FF0000".into(),
                     opacity: 1.0,
                     shape,
@@ -1666,6 +1925,7 @@ mod tests {
         // half-transparent box: the tracks below would show through it
         let glass = styled("see through", |s| {
             s.backdrop = Some(TextBox {
+                rotation: None,
                 color: "#000000".into(),
                 opacity: 0.5,
                 shape: BoxShape::Rect,
@@ -1739,6 +1999,7 @@ mod tests {
 
         // highlight: the last of several lines in another colour; a single line is left alone
         let accent = Some(TextHighlight {
+            word: None,
             color: "#FFD233".into(),
             lines: HighlightLines::Last,
         });
@@ -1812,6 +2073,7 @@ mod tests {
         };
         let backdrop = |padding: f64, color: &str| {
             Some(TextBox {
+                rotation: None,
                 color: color.into(),
                 opacity: 1.0,
                 shape: BoxShape::Rect,
@@ -1829,6 +2091,7 @@ mod tests {
             with(&|s| s.backdrop = backdrop(0.2, "black")),
             with(&|s| {
                 s.highlight = Some(TextHighlight {
+                    word: None,
                     color: "#12".into(),
                     lines: HighlightLines::Last,
                 })
@@ -1845,6 +2108,7 @@ mod tests {
             with(&|s| s.backdrop = backdrop(0.2, "#000000")),
             with(&|s| {
                 s.highlight = Some(TextHighlight {
+                    word: None,
                     color: "#FFD233".into(),
                     lines: HighlightLines::Even,
                 })

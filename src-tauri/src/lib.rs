@@ -116,6 +116,11 @@ pub fn run() {
             commands::media::pick_image,
             commands::project::open_project,
             commands::project::open_recent_project,
+            commands::recent::recent_projects,
+            commands::finishing::detect_clip_silences,
+            commands::finishing::save_clip_projects,
+            commands::subject::subject_runtime,
+            commands::subject::process_subject,
             commands::project::save_project,
             commands::project::forget_project_path
         ])

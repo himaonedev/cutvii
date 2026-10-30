@@ -175,6 +175,18 @@ describe("Timeline", () => {
     expect(clips()).toHaveLength(1);
   });
 
+  it("opens the dedicated Motion tab from the clip menu", async () => {
+    addAssetToTimeline(IDS.vid, { start: 0 });
+    const id = useSelectionStore.getState().selectedClipIds[0];
+    setup();
+    fireEvent.contextMenu(screen.getByRole("button", { name: "vid.mp4 clip" }), { clientX: 20, clientY: 20 });
+    await userEvent.click(screen.getByRole("menuitem", { name: "Motion presets…" }));
+    expect(useUiStore.getState().inspectorTab.video).toBe("motion");
+    expect(useUiStore.getState().sidePanel).toBe("inspector");
+    expect(useSelectionStore.getState().selectedClipIds).toEqual([id]);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
   it("windows rendering: far-away clips are not in the DOM", () => {
     addAssetToTimeline(IDS.vid, { start: 0 });
     addAssetToTimeline(IDS.vid2, { start: 5000 });

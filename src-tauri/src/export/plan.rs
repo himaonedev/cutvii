@@ -448,14 +448,26 @@ pub fn build_filter_graph(plan: &ExportPlan) -> FilterGraph {
                     ]),
             ),
             // seek in the demuxer (fast, still frame-accurate) and read only what is used
-            _ => input_args.extend([
-                "-ss".to_string(),
-                secs(clip.source_in),
-                "-t".into(),
-                secs(clip.source_duration),
-                "-i".into(),
-                p,
-            ]),
+            _ => {
+                // FFmpeg's native VP9 decoder drops WebM alpha; libvpx preserves it.
+                if clip.transparent
+                    && clip.media_type == MediaType::Video
+                    && clip
+                        .path
+                        .extension()
+                        .is_some_and(|e| e.eq_ignore_ascii_case("webm"))
+                {
+                    input_args.extend(["-c:v".into(), "libvpx-vp9".into()]);
+                }
+                input_args.extend([
+                    "-ss".to_string(),
+                    secs(clip.source_in),
+                    "-t".into(),
+                    secs(clip.source_duration),
+                    "-i".into(),
+                    p,
+                ]);
+            }
         }
     }
 
@@ -513,6 +525,11 @@ pub fn build_filter_graph(plan: &ExportPlan) -> FilterGraph {
             } else {
                 format!("[{i}:v]fps={fps}")
             };
+            let source = if clip.transparent && !still {
+                format!("{source},format=rgba")
+            } else {
+                source
+            };
             // crop first, on the source picture: everything after it sees only the part that is kept
             let source = match clip.crop {
                 Some(k) => format!(
@@ -544,6 +561,7 @@ pub fn build_filter_graph(plan: &ExportPlan) -> FilterGraph {
             match (still, clip.fit) {
                 // text: the whole picture, centred, with its transparency kept so the tracks below show
                 _ if clip.transparent => {
+                    let transparent_fit = if !still && clip.fit == FitMode::Fill { &cover } else { &contain };
                     // a text that fades does so with its transparency, so what is under it shows through
                     let mut fades = String::new();
                     if clip.fade_in > 1e-6 {
@@ -557,7 +575,7 @@ pub fn build_filter_graph(plan: &ExportPlan) -> FilterGraph {
                         ));
                     }
                     parts.push(format!(
-                        "{source},{contain},pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black@0,{fades}setsar=1,{shift}[c{i}]"
+                        "{source},{transparent_fit},pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black@0,{fades}setsar=1,{shift}[c{i}]"
                     ))
                 }
                 // video, whole picture, plain colour bars: a pad is enough

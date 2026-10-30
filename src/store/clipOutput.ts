@@ -9,6 +9,7 @@ import { cancelExport } from "@/lib/exportApi";
 import {
   createClipsInProject,
   exportSelectedClips,
+  saveSelectedClipProjects,
   type BatchReport,
   type ExportSize,
 } from "@/timeline/createClips";
@@ -22,11 +23,13 @@ export interface BatchProgress {
 }
 
 interface ClipOutputState {
-  busy: "export" | "create" | null;
+  busy: "export" | "create" | "projects" | null;
   stage: string | null;
   progress: BatchProgress | null;
   problem: string | null;
   done: { report: BatchReport; expected: number[] } | null;
+  projectsSaved: number | null;
+  saveProjects: () => Promise<void>;
   size: ExportSize;
   quality: Quality;
   setSize: (size: ExportSize) => void;
@@ -47,6 +50,15 @@ export const useClipOutputStore = create<ClipOutputState>((set, get) => ({
   progress: null,
   problem: null,
   done: null,
+  projectsSaved: null,
+  saveProjects: async () => {
+    if (get().busy) return;
+    set({ busy: "projects", stage: "Choose a folder…", problem: null, projectsSaved: null });
+    const result = await saveSelectedClipProjects(get().size, (stage) => set({ stage }));
+    set({ busy: null, stage: null });
+    if (!result.ok) set({ problem: result.reason });
+    else set({ projectsSaved: result.count });
+  },
   size: 1080,
   quality: "standard",
   setSize: (size) => set({ size }),
@@ -77,5 +89,5 @@ export const useClipOutputStore = create<ClipOutputState>((set, get) => ({
         `Added ${n} clip${n === 1 ? "" : "s"} at the end of the timeline${result.subtitles > 0 ? `, with ${result.subtitles} subtitles` : ""}. They are selected; Undo removes them all.`,
       );
   },
-  clear: () => set({ problem: null, done: null }),
+  clear: () => set({ problem: null, done: null, projectsSaved: null }),
 }));

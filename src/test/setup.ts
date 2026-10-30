@@ -1,4 +1,9 @@
 import "@testing-library/jest-dom/vitest";
+import { useUiStore } from "@/store/ui";
+
+// Existing editing fixtures represent a project already open. Startup tests
+// explicitly opt into the home screen before mounting App.
+beforeEach(() => useUiStore.setState({ appView: "editor", hasSession: true }));
 
 // jsdom does not implement media playback; stub the pieces the preview drives.
 Object.defineProperty(HTMLMediaElement.prototype, "play", {

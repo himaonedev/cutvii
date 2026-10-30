@@ -11,6 +11,7 @@ import type { TextStyle } from "@/project/model";
 import { DEFAULT_SUBTITLE_POSITION, type Position } from "./textPosition";
 import { withStyle } from "./textStyles";
 import { canvasShape, DEFAULT_CAPTION_LIMITS, splitCaptions, type CaptionLimits } from "./captionRules";
+import { activeWordCaptions, withActiveWord } from "./wordCaptions";
 
 /** One stretch of speech; times are seconds from the start of the clip's used source range. */
 export interface SpeechSegment {
@@ -273,10 +274,11 @@ export async function placeSubtitles(whole: Subtitle[], o: PlaceOptions): Promis
 
   const drawn: DrawnSubtitle[] = [];
   try {
-    for (const [i, subtitle] of subtitles.entries()) {
-      onStage(`Drawing subtitle ${i + 1} of ${subtitles.length}`);
+    const states = activeWordCaptions(subtitles, style?.style, fps);
+    for (const [i, subtitle] of states.entries()) {
+      onStage(`Drawing subtitle ${i + 1} of ${states.length}`);
       const plain = subtitleSpec(subtitle.text, height, at, share, o.wrap);
-      const spec = style ? withStyle(plain, style.style) : plain;
+      const spec = withActiveWord(style ? withStyle(plain, style.style) : plain, subtitle.activeWord);
       const picture = await invoke<string>("render_text", { spec, width, height });
       drawn.push({
         ...subtitle,
@@ -284,7 +286,7 @@ export async function placeSubtitles(whole: Subtitle[], o: PlaceOptions): Promis
         picture,
         assetId: crypto.randomUUID(),
         clipId: crypto.randomUUID(),
-        fade: style?.fade,
+        fade: style?.style.highlight?.word ? undefined : style?.fade,
       });
     }
   } catch (e) {

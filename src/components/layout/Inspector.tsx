@@ -13,6 +13,7 @@ import { StyleGallery } from "@/components/inspector/StyleGallery";
 import { TextPanel } from "@/components/inspector/TextPanel";
 import { TransformPanel } from "@/components/inspector/TransformPanel";
 import { TransitionPanel } from "@/components/inspector/TransitionPanel";
+import { MotionPresetsPanel } from "@/components/inspector/MotionPresetsPanel";
 import { UpscalePanel } from "@/components/inspector/UpscalePanel";
 import { Panel } from "@/components/Panel";
 import { assetName, fileName } from "@/lib/media";
@@ -400,11 +401,11 @@ function SpeedPanel({
 
 /** Tabs that have working controls for each kind of clip, in display order. The first one is the default. */
 export const TABS_FOR: Record<ClipKind, InspectorTab[]> = {
-  video: ["video", "transition", "color", "ai", "audio", "speed", "info"],
+  video: ["video", "motion", "transition", "color", "ai", "audio", "speed", "info"],
   audio: ["audio", "ai", "speed", "info"],
-  image: ["video", "transition", "color", "info"], // stills have no sound and no speed
+  image: ["video", "motion", "transition", "color", "info"], // stills have no sound and no speed
 };
-const TEXT_TABS: InspectorTab[] = ["text", "transition", "info"];
+const TEXT_TABS: InspectorTab[] = ["text", "motion", "transition", "info"];
 const TAB_LABEL: Record<InspectorTab, string> = {
   video: "Video",
   audio: "Audio",
@@ -415,6 +416,7 @@ const TAB_LABEL: Record<InspectorTab, string> = {
   // the user asked for this name; the tab holds the presets, the sliders and the LUT
   color: "Preset",
   transition: "Transition",
+  motion: "Motion",
 };
 
 function FitChips({ clip }: { clip: TimelineClip }) {
@@ -743,7 +745,7 @@ function ClipTabs({ clip, asset, fps }: { clip: TimelineClip; asset: MediaAsset;
         role="tablist"
         aria-label="Clip properties"
         onKeyDown={onKeyDown}
-        className="flex shrink-0 overflow-x-auto border-b px-1 [scrollbar-width:none]"
+        className="grid shrink-0 grid-cols-4 gap-1 border-b p-1"
       >
         {tabs.map((t) => (
           <button
@@ -756,14 +758,16 @@ function ClipTabs({ clip, asset, fps }: { clip: TimelineClip; asset: MediaAsset;
             tabIndex={active === t ? 0 : -1}
             onClick={() => setTab(kind, t)}
             className={cn(
-              "flex h-11 flex-1 items-center justify-center gap-1 border-b-2 px-1.5 text-xs whitespace-nowrap [&_svg]:size-3.5",
+              "flex h-11 min-w-0 flex-col items-center justify-center gap-0.5 rounded-sm border-b-2 px-1 text-xs whitespace-nowrap [&_svg]:size-3.5",
               active === t ? "border-accent text-text" : "border-transparent text-text-muted hover:text-text",
               // the AI tab keeps a touch of the accent so it is easy to find
               t === "ai" && "[&_svg]:text-accent",
             )}
           >
-            {t === "ai" && <Sparkles aria-hidden />}
-            {TAB_LABEL[t]}
+            <span className="flex items-center justify-center gap-1">
+              {t === "ai" && <Sparkles aria-hidden />}
+              {TAB_LABEL[t]}
+            </span>
             {t === "ai" && clipsReady && (
               <span className="rounded-sm bg-accent-soft px-1 text-[10px] text-accent">Clips ready</span>
             )}
@@ -796,6 +800,9 @@ function ClipTabs({ clip, asset, fps }: { clip: TimelineClip; asset: MediaAsset;
               />
             )}
           </Section>
+        )}
+        {active === "motion" && (
+          <MotionPresetsPanel key={`${clip.id}-motion`} clip={clip} text={Boolean(asset.text)} />
         )}
         {active === "video" && (
           <Section id="transform" title="Transform">

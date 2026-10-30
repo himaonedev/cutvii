@@ -23,6 +23,9 @@ import {
   SUBTITLE_PLACES,
 } from "./autoClips";
 import { projectDuration } from "./clips";
+import { keptSpans, manualReframe, type FinishingSettings } from "./clipFinishing";
+import { activeWordCaptions, withActiveWord } from "./wordCaptions";
+import type { SourceSpan } from "./autoClips";
 import { addClip, addTrack, type EditResult } from "./edit";
 import {
   addSubtitleClips,
@@ -60,15 +63,50 @@ export interface PlacedClip {
  * Line the chosen clips up one after another, in the order they are spoken, starting on the first whole
  * frame after everything already on the timeline.
  */
-export function placeClips(project: Project, clips: FoundClip[], ids: string[]): PlacedClip[] {
+export function placeClips(
+  project: Project,
+  clips: FoundClip[],
+  ids: string[],
+  silences: SourceSpan[] = [],
+): PlacedClip[] {
   const fps = project.settings.fps;
-  let at = Math.ceil(projectDuration(project) * fps - 1e-6) / fps;
-  return sortedClips(clips, "time").map((c, i) => {
-    const placed = { id: ids[i], title: c.title, sourceIn: c.sourceIn, sourceOut: c.sourceOut, start: at };
-    // whole frames, so the next clip starts exactly where this one ends
-    at = Math.round((at + (c.sourceOut - c.sourceIn)) * fps) / fps;
-    return placed;
+  let at = Math.max(0, Math.ceil(projectDuration(project) * fps - 1e-6) / fps);
+  return sortedClips(clips, "time").flatMap((c, i) => {
+    const spans = keptSpans(c.sourceIn, c.sourceOut, silences);
+    if (!spans.length) throw new Error(`No usable audio remains in “${c.title}” after silence removal`);
+    const rounded = spans
+      .map((span) => ({
+        start: silences.length ? Math.max(c.sourceIn, Math.round(span.start * fps) / fps) : span.start,
+        end: silences.length ? Math.min(c.sourceOut, Math.round(span.end * fps) / fps) : span.end,
+      }))
+      .filter((span) => span.end - span.start >= 1 / fps - 1e-6);
+    if (!rounded.length) throw new Error(`No complete video frames remain in “${c.title}”`);
+    return rounded.map((span, j) => {
+      const sourceIn = span.start;
+      const sourceOut = span.end;
+      const placed = {
+        id: j === 0 ? ids[i] : `${ids[i]}-part-${j}`,
+        title: c.title,
+        sourceIn,
+        sourceOut,
+        start: at,
+      };
+      at = Math.round((at + sourceOut - sourceIn) * fps) / fps;
+      return placed;
+    });
   });
+}
+
+async function detectedSilences(
+  path: string,
+  start: number,
+  end: number,
+  enabled: boolean | undefined,
+  onStage: (s: string) => void,
+): Promise<SourceSpan[]> {
+  if (!enabled) return [];
+  onStage("Detecting quiet pauses in the audio…");
+  return invoke<SourceSpan[]>("detect_clip_silences", { path, sourceIn: start, sourceOut: end });
 }
 
 /**
@@ -115,6 +153,7 @@ export function addAutoClips(
   ids: CreateIds,
   /** The clips are sound only (an audio file, or a video's detached sound). */
   soundOnly: boolean,
+  finishing: FinishingSettings = {},
 ): EditResult {
   const asset = project.assets.find((a) => a.id === assetId);
   if (!asset)
@@ -123,6 +162,12 @@ export function addAutoClips(
       error: { code: "unknown-asset", message: "The original media is no longer in the project" },
     };
   if (placed.length === 0) return { ok: true, project };
+  let crop;
+  try {
+    crop = soundOnly || output === "keep" ? undefined : manualReframe(asset, project.settings, finishing);
+  } catch (error) {
+    return { ok: false, error: { code: "out-of-range", message: String(error) } };
+  }
   const track = addTrack(project, soundOnly ? "audio" : "video", ids.clipTrack);
   if (!track.ok) return track;
   let next = track.project;
@@ -149,6 +194,7 @@ export function addAutoClips(
                       ...c,
                       sourceIn: p.sourceIn,
                       sourceOut: p.sourceOut,
+                      ...(crop ? { crop } : {}),
                       // centre reframe: the picture fills the canvas, cropped evenly on both sides
                       ...(!soundOnly && output !== "keep" ? { fitMode: "fill" as const } : {}),
                     },
@@ -194,10 +240,11 @@ async function drawSubtitles(
     (video ? subtitleWrap({ ...fit } as TimelineClip, asset, width, height) : undefined) ??
     CLIP_SUBTITLE_WRAP;
   const drawn: DrawnSubtitle[] = [];
-  for (const [i, line] of lines.entries()) {
+  const states = activeWordCaptions(lines, look?.style, useProjectStore.getState().project.settings.fps);
+  for (const [i, line] of states.entries()) {
     onLine(i + 1);
     const plain = subtitleSpec(line.text, height, at, share, wrap);
-    const spec = look ? withStyle(plain, look.style) : plain;
+    const spec = withActiveWord(look ? withStyle(plain, look.style) : plain, line.activeWord);
     const picture = await invoke<string>("render_text", { spec, width, height });
     drawn.push({
       ...line,
@@ -205,7 +252,7 @@ async function drawSubtitles(
       picture,
       assetId: crypto.randomUUID(),
       clipId: crypto.randomUUID(),
-      fade: look?.fade,
+      fade: look?.style.highlight?.word ? undefined : look?.fade,
     });
   }
   return drawn;
@@ -234,11 +281,24 @@ export async function createClipsInProject(
   if (chosen.some((c) => asset.duration !== undefined && c.sourceOut > asset.duration + 1e-3))
     return { ok: false, reason: "The media file changed since the search. Search again." };
 
-  const placed = placeClips(
-    project,
-    chosen,
-    chosen.map(() => crypto.randomUUID()),
-  );
+  let placed: PlacedClip[];
+  try {
+    const silences = await detectedSilences(
+      ctx.path,
+      ctx.rangeIn,
+      ctx.rangeOut,
+      auto.settings.removeSilences,
+      onStage,
+    );
+    placed = placeClips(
+      project,
+      chosen,
+      chosen.map(() => crypto.randomUUID()),
+      silences,
+    );
+  } catch (error) {
+    return { ok: false, reason: message(error) };
+  }
   let drawn: DrawnSubtitle[] = [];
   if (auto.settings.subtitles) {
     const lines = placed.flatMap((p) => subtitlesForPlaced(p, auto.sentences));
@@ -261,7 +321,8 @@ export async function createClipsInProject(
   const ids = { clipTrack: crypto.randomUUID(), subtitleTrack: crypto.randomUUID() };
   const result = useProjectStore.getState().execute({
     label: `Create ${placed.length} clip${placed.length === 1 ? "" : "s"}`,
-    apply: (p) => addAutoClips(p, asset.id, placed, drawn, auto.settings.output, ids, !ctx.video),
+    apply: (p) =>
+      addAutoClips(p, asset.id, placed, drawn, auto.settings.output, ids, !ctx.video, auto.settings),
   });
   if (!result.ok) return { ok: false, reason: result.error.message };
   const clipIds = placed.map((p) => p.id);
@@ -294,7 +355,7 @@ export function exportCanvas(
 
 /**
  * A small project holding just one clip from 0 (and its subtitles), on the export canvas. It is never
- * opened or saved: it only tells the exporter what to render.
+ * opened in the editor: used for a batch export or saved as an independent editable project.
  */
 export function clipProject(
   source: Project,
@@ -304,27 +365,33 @@ export function clipProject(
   canvas: { width: number; height: number },
   output: OutputShape,
   soundOnly: boolean,
+  finishing: FinishingSettings = {},
 ): EditResult {
   const base = createProject(clip.title || "Clip", {
     ...canvas,
     fps: source.settings.fps,
     backgroundColor: source.settings.backgroundColor,
   });
-  const placed: PlacedClip = {
-    id: crypto.randomUUID(),
-    title: clip.title,
-    sourceIn: clip.sourceIn,
-    sourceOut: clip.sourceOut,
-    start: 0,
-  };
+  let placed: PlacedClip[];
+  try {
+    placed = placeClips(
+      { ...base, tracks: [] },
+      [clip as FoundClip],
+      [crypto.randomUUID()],
+      finishing.silences,
+    );
+  } catch (error) {
+    return { ok: false, error: { code: "out-of-range", message: String(error) } };
+  }
   return addAutoClips(
     { ...base, tracks: [], assets: [asset] },
     asset.id,
-    [placed],
+    placed,
     subtitles,
     output,
     { clipTrack: crypto.randomUUID(), subtitleTrack: crypto.randomUUID() },
     soundOnly,
+    finishing,
   );
 }
 
@@ -373,17 +440,61 @@ export async function exportSelectedClips(
     return { ok: false, reason: message(e) };
   }
   if (!folder) return { ok: true, report: null, expected: [] };
+  const prepared = await prepareClipProjects(size, onStage);
+  if (!prepared.ok) return prepared;
+  const { items, canvas } = prepared;
+  const options: ExportOptions = {
+    ...canvas,
+    fps: project.settings.fps,
+    quality,
+    format: ctx.video ? "mp4" : "m4a",
+  };
+  onStage("Starting…");
+  try {
+    const report = await invoke<BatchReport | null>("export_clips", { items, options });
+    return { ok: true, report: report ?? null, expected: items.map((item) => projectDuration(item.project)) };
+  } catch (e) {
+    return { ok: false, reason: message(e) };
+  }
+}
+
+export type PreparedClipProjects =
+  | { ok: true; items: { title: string; project: Project }[]; canvas: { width: number; height: number } }
+  | { ok: false; reason: string };
+export async function prepareClipProjects(
+  size: ExportSize,
+  onStage: (stage: string) => void = () => {},
+): Promise<PreparedClipProjects> {
+  const auto = useAutoClipsStore.getState();
+  const ctx = auto.context;
+  const chosen = sortedClips(
+    auto.clips.filter((c) => c.included),
+    "time",
+  );
+  if (!ctx || chosen.length === 0) return { ok: false, reason: "Select at least one clip" };
+  const project = useProjectStore.getState().project;
+  const asset = project.assets.find((a) => a.path === ctx.path);
+  if (!asset)
+    return {
+      ok: false,
+      reason: "The original media is no longer in the project. Import or relink it first.",
+    };
   const output = ctx.video ? auto.settings.output : "keep";
   const canvas = exportCanvas(output, size, project.settings);
   const items: { title: string; project: Project }[] = [];
   try {
+    const silences = await detectedSilences(
+      ctx.path,
+      ctx.rangeIn,
+      ctx.rangeOut,
+      auto.settings.removeSilences,
+      onStage,
+    );
     for (const [i, clip] of chosen.entries()) {
       onStage(`Preparing clip ${i + 1} of ${chosen.length}`);
+      const parts = placeClips({ ...project, tracks: [] }, [clip], ["part"], silences);
       const lines = auto.settings.subtitles
-        ? subtitlesForPlaced(
-            { id: "", title: clip.title, sourceIn: clip.sourceIn, sourceOut: clip.sourceOut, start: 0 },
-            auto.sentences,
-          )
+        ? parts.flatMap((part) => subtitlesForPlaced(part, auto.sentences))
         : [];
       const drawn = await drawSubtitles(
         lines,
@@ -394,24 +505,33 @@ export async function exportSelectedClips(
         auto.settings.subtitleSize,
         () => {},
       );
-      const built = clipProject(project, asset, clip, drawn, canvas, output, !ctx.video);
+      const built = clipProject(project, asset, clip, drawn, canvas, output, !ctx.video, {
+        ...auto.settings,
+        silences,
+      });
       if (!built.ok) return { ok: false, reason: built.error.message };
       items.push({ title: clip.title, project: built.project });
     }
   } catch (e) {
-    return { ok: false, reason: `Could not draw the subtitles: ${message(e)}` };
+    return { ok: false, reason: `Could not prepare the clips: ${message(e)}` };
   }
-  const options: ExportOptions = {
-    ...canvas,
-    fps: project.settings.fps,
-    quality,
-    format: ctx.video ? "mp4" : "m4a",
-  };
-  onStage("Starting…");
+
+  return { ok: true, items, canvas };
+}
+
+export async function saveSelectedClipProjects(
+  size: ExportSize,
+  onStage: (stage: string) => void = () => {},
+): Promise<{ ok: true; count: number | null } | { ok: false; reason: string }> {
   try {
-    const report = await invoke<BatchReport | null>("export_clips", { items, options });
-    return { ok: true, report: report ?? null, expected: chosen.map((c) => c.sourceOut - c.sourceIn) };
-  } catch (e) {
-    return { ok: false, reason: message(e) };
+    const folder = await invoke<string | null>("choose_clips_folder");
+    if (!folder) return { ok: true, count: null };
+    const built = await prepareClipProjects(size, onStage);
+    if (!built.ok) return built;
+    onStage("Saving editable projects…");
+    const saved = await invoke<{ paths: string[] }>("save_clip_projects", { items: built.items });
+    return { ok: true, count: saved.paths.length };
+  } catch (error) {
+    return { ok: false, reason: message(error) };
   }
 }

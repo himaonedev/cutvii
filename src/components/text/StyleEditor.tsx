@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import type { TextStyle } from "@/project/model";
 import { DEFAULT_FONT, useFontStore } from "@/store/fonts";
 import { MAX_STYLE_NAME, useTextStyleStore, type CustomStyle } from "@/store/textStyles";
+import { DEFAULT_WORD_HIGHLIGHT } from "@/timeline/wordCaptions";
 
 const fieldClass =
   "h-9 w-full rounded-md border bg-surface-2 px-2 text-sm pointer-coarse:h-11 focus-visible:outline-accent";
@@ -74,6 +75,7 @@ function Percent({
       </span>
       <input
         type="range"
+        aria-label={label}
         min={min}
         max={max}
         step={1}
@@ -116,8 +118,38 @@ function Part({
 const SHAPES = [
   { id: "rect", label: "One box" },
   { id: "per-line", label: "Per line" },
+  { id: "per-word", label: "Per word" },
   { id: "jagged", label: "Jagged" },
 ] as const;
+
+function BoxAngle({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block text-xs text-text-muted">
+      <span className="flex justify-between">
+        {label}
+        <span>{value}°</span>
+      </span>
+      <input
+        type="range"
+        aria-label={label}
+        min={-45}
+        max={45}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full accent-[var(--accent)]"
+      />
+    </label>
+  );
+}
 
 /**
  * The ONE style editor: every control of a text style with a live sample on top. It edits a value and
@@ -152,7 +184,11 @@ export function StyleEditor({
 
   return (
     <div role="group" aria-label="Style editor" className="space-y-3 text-xs">
-      <StylePreview style={style} label={label} className="h-24 w-full rounded-md" />
+      <StylePreview
+        style={style}
+        label={style.highlight?.word ? "Ini contoh subtitle" : label}
+        className="h-24 w-full rounded-md"
+      />
 
       <div>
         <p className="mb-1 text-text-muted">Font</p>
@@ -287,7 +323,7 @@ export function StyleEditor({
       >
         {style.box && (
           <>
-            <div role="radiogroup" aria-label="Box shape" className="grid grid-cols-3 gap-1">
+            <div role="radiogroup" aria-label="Box shape" className="grid grid-cols-2 gap-1">
               {SHAPES.map((shape) => (
                 <button
                   key={shape.id}
@@ -295,7 +331,15 @@ export function StyleEditor({
                   role="radio"
                   aria-checked={style.box!.shape === shape.id}
                   className={chip(style.box!.shape === shape.id)}
-                  onClick={() => set({ box: { ...style.box!, shape: shape.id } })}
+                  onClick={() =>
+                    set({
+                      box: {
+                        ...style.box!,
+                        shape: shape.id,
+                        ...(shape.id === "per-word" ? { padding: 0.1 } : {}),
+                      },
+                    })
+                  }
                 >
                   {shape.label}
                 </button>
@@ -306,6 +350,17 @@ export function StyleEditor({
               value={style.box.color}
               onChange={(color) => set({ box: { ...style.box!, color } })}
             />
+            <BoxAngle
+              label="Base box rotation"
+              value={style.box.rotation ?? 0}
+              onChange={(rotation) => set({ box: { ...style.box!, rotation } })}
+            />
+            {style.box.shape === "per-word" && (
+              <p className="text-text-muted">
+                A separate box around every visible word. Text stays straight; each box rotates about its own
+                centre.
+              </p>
+            )}
             <Percent
               label="Box strength"
               value={style.box.opacity}
@@ -328,11 +383,96 @@ export function StyleEditor({
       </Part>
 
       <Part
+        title="Highlight active word"
+        on={style.highlight?.word !== undefined}
+        onToggle={(on) =>
+          set({
+            highlight: on
+              ? {
+                  color: "#000000",
+                  lines: "last",
+                  word: { ...DEFAULT_WORD_HIGHLIGHT },
+                }
+              : undefined,
+          })
+        }
+      >
+        {style.highlight?.word && (
+          <>
+            <Colour
+              label="Active word text colour"
+              value={style.highlight.color}
+              onChange={(color) => set({ highlight: { ...style.highlight!, color } })}
+            />
+            <BoxAngle
+              label="Active word box rotation"
+              value={style.highlight.word.rotation ?? 0}
+              onChange={(rotation) =>
+                set({ highlight: { ...style.highlight!, word: { ...style.highlight!.word!, rotation } } })
+              }
+            />
+            <Colour
+              label="Active word box colour"
+              value={style.highlight.word.boxColor}
+              onChange={(boxColor) =>
+                set({ highlight: { ...style.highlight!, word: { ...style.highlight!.word!, boxColor } } })
+              }
+            />
+            {(
+              [
+                ["opacity", "Active word box opacity"],
+                ["padding", "Active word box padding"],
+                ["radius", "Active word box roundness"],
+              ] as const
+            ).map(([key, label]) => (
+              <Percent
+                key={key}
+                label={label}
+                value={style.highlight!.word![key]}
+                onChange={(next) =>
+                  set({
+                    highlight: { ...style.highlight!, word: { ...style.highlight!.word!, [key]: next } },
+                  })
+                }
+              />
+            ))}
+            <label className="block space-y-1">
+              <span className="text-text-muted">Words per caption</span>
+              <input
+                type="number"
+                min={1}
+                max={8}
+                step={1}
+                className={fieldClass}
+                value={style.highlight.word.maxWords}
+                onChange={(e) =>
+                  set({
+                    highlight: {
+                      ...style.highlight!,
+                      word: {
+                        ...style.highlight!.word!,
+                        maxWords: Math.max(1, Math.min(8, Math.round(Number(e.target.value) || 1))),
+                      },
+                    },
+                  })
+                }
+              />
+            </label>
+            <p className="text-text-muted">
+              Subtitle highlights use estimated word times from each segment. Each state stays editable on the
+              timeline. Choose 1 word per caption to show one word at a time. Fade is ignored between word
+              states.
+            </p>
+          </>
+        )}
+      </Part>
+
+      <Part
         title="Highlight a line"
-        on={style.highlight !== undefined}
+        on={style.highlight !== undefined && !style.highlight.word}
         onToggle={(on) => set({ highlight: on ? { color: "#FFD233", lines: "last" } : undefined })}
       >
-        {style.highlight && (
+        {style.highlight && !style.highlight.word && (
           <>
             <Colour
               label="Highlight colour"

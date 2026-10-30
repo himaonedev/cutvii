@@ -3,7 +3,8 @@ import type { ClipLut, ColorAdjust } from "@/project/model";
 import type { Transform } from "@/timeline/transform";
 
 export type SidePanel = "library" | "text" | "inspector";
-export type InspectorTab = "video" | "audio" | "speed" | "info" | "text" | "ai" | "color" | "transition";
+export type InspectorTab =
+  "video" | "audio" | "speed" | "info" | "text" | "ai" | "color" | "transition" | "motion";
 export type ClipKind = "video" | "audio" | "image";
 
 export interface DialogState {
@@ -16,6 +17,9 @@ export interface DialogState {
 }
 
 interface UiState {
+  appView: "home" | "editor";
+  hasSession: boolean;
+  setAppView: (view: "home" | "editor") => void;
   /** Which side panel is visible on narrow screens (wide screens show both). */
   sidePanel: SidePanel;
   setSidePanel: (panel: SidePanel) => void;
@@ -91,6 +95,9 @@ interface UiState {
 }
 
 export const useUiStore = create<UiState>((set, get) => ({
+  appView: "home",
+  hasSession: false,
+  setAppView: (appView) => set((s) => ({ appView, hasSession: s.hasSession || appView === "editor" })),
   sidePanel: "library",
   setSidePanel: (sidePanel) =>
     set(sidePanel === "inspector" ? { sidePanel } : { sidePanel, leftPanel: sidePanel }),

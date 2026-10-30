@@ -54,19 +54,6 @@ function Group({
   );
 }
 
-/** A planned option that is not built: visible, switched off, and says so. */
-function Soon({ label }: { label: string }) {
-  return (
-    <span
-      aria-disabled
-      className="inline-flex min-h-9 items-center gap-2 rounded-md border border-dashed px-3 text-sm text-text-muted opacity-70 pointer-coarse:min-h-11"
-    >
-      {label}
-      <span className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px]">Coming soon</span>
-    </span>
-  );
-}
-
 const minutes = (seconds: number) =>
   seconds < 90 ? `${Math.max(1, Math.round(seconds))} s` : `${Math.round(seconds / 60)} min`;
 
@@ -444,14 +431,55 @@ export function SettingsStep() {
             </button>
           ))}
         </div>
-        <div className="flex flex-wrap items-center gap-1.5 text-sm">
-          <span className="text-text-muted">Reframe</span>
-          <span className={chip(true)} aria-label="Reframe: Center">
-            <span className="flex min-h-9 items-center pointer-coarse:min-h-11">Center</span>
-          </span>
-          <Soon label="Manual" />
-        </div>
-        <Soon label="Remove silences inside clips" />
+        <label className="block space-y-1 text-sm">
+          <span>Reframe</span>
+          <select
+            className={fieldClass}
+            disabled={running}
+            value={settings.reframe ?? "center"}
+            onChange={(e) => set("reframe", e.target.value as "center" | "manual")}
+          >
+            <option value="center">Center</option>
+            <option value="manual">Manual</option>
+          </select>
+        </label>
+        {settings.reframe === "manual" && settings.output !== "keep" && (
+          <div className="space-y-2">
+            {(["X", "Y"] as const).map((axis) => (
+              <label key={axis} className="block text-xs text-text-muted">
+                {axis === "X" ? "Horizontal crop position" : "Vertical crop position"}
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  disabled={running}
+                  value={settings[axis === "X" ? "reframeX" : "reframeY"] ?? 0.5}
+                  onChange={(e) => set(axis === "X" ? "reframeX" : "reframeY", Number(e.target.value))}
+                  className="w-full accent-[var(--accent)]"
+                />
+              </label>
+            ))}
+            <p className="text-xs text-text-muted">
+              Review the chosen crop in the next step. Applies to the selected output shape.
+            </p>
+          </div>
+        )}
+        <label className="flex min-h-9 items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            disabled={running}
+            checked={settings.removeSilences ?? false}
+            onChange={(e) => set("removeSilences", e.target.checked)}
+          />
+          Remove silences inside clips
+        </label>
+        {settings.removeSilences && (
+          <p className="text-xs text-text-muted">
+            Removes pauses of at least 0.6 seconds below −35 dB, keeping a short margin around speech. Review
+            the cuts before publishing.
+          </p>
+        )}
       </Group>
 
       <div className="md:col-span-2">

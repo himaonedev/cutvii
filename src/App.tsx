@@ -32,6 +32,7 @@ import { useFileDrop } from "@/hooks/useFileDrop";
 import { watchLongClips } from "@/timeline/ai";
 import { watchTextPictures } from "@/timeline/text";
 import { useEditorShortcuts } from "@/timeline/useEditorShortcuts";
+import { ProjectHome } from "@/components/ProjectHome";
 
 const TABS: { id: SidePanel; label: string }[] = [
   { id: "library", label: "Media" },
@@ -63,11 +64,16 @@ function SidePanelTabs() {
   );
 }
 
-export default function App() {
+function EditorBindings() {
   useEditorShortcuts();
   useFileDrop();
   useEffect(() => watchTextPictures(), []);
   useEffect(() => watchLongClips(), []);
+  return null;
+}
+
+export default function App() {
+  const appView = useUiStore((s) => s.appView);
   useEffect(() => startUpdateWatcher(), []);
   useEffect(() => {
     const guard = installCloseGuard();
@@ -79,21 +85,28 @@ export default function App() {
   }, []);
   return (
     <TooltipProvider>
-      <div className="flex h-full flex-col bg-bg">
-        <TopBar />
-        <CanvasNotice />
-        <main className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[18rem_minmax(0,1fr)_20rem] lg:grid-rows-[minmax(0,1fr)_16rem]">
-          <Preview />
-          {/* narrow: tabs + the active panel; wide: wrapper disappears and panels become grid items */}
-          <div className="flex min-h-0 flex-col lg:contents">
-            <SidePanelTabs />
-            <MediaLibrary />
-            <TextStylesPanel />
-            <Inspector />
+      {appView === "home" ? (
+        <ProjectHome />
+      ) : (
+        <>
+          <EditorBindings />
+          <div className="flex h-full flex-col bg-bg">
+            <TopBar />
+            <CanvasNotice />
+            <main className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[18rem_minmax(0,1fr)_20rem] lg:grid-rows-[minmax(0,1fr)_16rem]">
+              <Preview />
+              {/* narrow: tabs + the active panel; wide: wrapper disappears and panels become grid items */}
+              <div className="flex min-h-0 flex-col lg:contents">
+                <SidePanelTabs />
+                <MediaLibrary />
+                <TextStylesPanel />
+                <Inspector />
+              </div>
+              <Timeline />
+            </main>
           </div>
-          <Timeline />
-        </main>
-      </div>
+        </>
+      )}
       <DragChip />
       <ExportDialog />
       <AutoClipsWizard />

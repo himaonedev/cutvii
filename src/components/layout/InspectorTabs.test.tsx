@@ -44,14 +44,17 @@ beforeEach(() => {
 describe("Inspector tabs", () => {
   it("offers only the tabs that have controls for that kind of clip", () => {
     expect(TABS_FOR).toEqual({
-      video: ["video", "transition", "color", "ai", "audio", "speed", "info"],
+      video: ["video", "motion", "transition", "color", "ai", "audio", "speed", "info"],
       audio: ["audio", "ai", "speed", "info"],
-      image: ["video", "transition", "color", "info"],
+      image: ["video", "motion", "transition", "color", "info"],
     });
 
     place(IDS.vid);
     const { unmount } = render(<Inspector />);
-    expect(tabNames()).toEqual(["Video", "Transition", "Preset", "AI", "Audio", "Speed", "Info"]);
+    expect(tabNames()).toEqual(["Video", "Motion", "Transition", "Preset", "AI", "Audio", "Speed", "Info"]);
+    const list = screen.getByRole("tablist", { name: "Clip properties" });
+    expect(list.className).toContain("grid-cols-4");
+    expect(list.className).not.toContain("overflow-x-auto");
     unmount();
 
     act(() => useSelectionStore.getState().clear());
@@ -63,7 +66,7 @@ describe("Inspector tabs", () => {
     act(() => useSelectionStore.getState().clear());
     place(IDS.img, 30);
     render(<Inspector />);
-    expect(tabNames()).toEqual(["Video", "Transition", "Preset", "Info"]); // a still has no sound and no speed
+    expect(tabNames()).toEqual(["Video", "Motion", "Transition", "Preset", "Info"]); // a still has no sound and no speed
   });
 
   it("keeps the header (name, type and track, Start, Duration) visible on every tab", async () => {
@@ -147,8 +150,9 @@ describe("Inspector tabs", () => {
     tab("Video").focus();
 
     fireEvent.keyDown(list, { key: "ArrowRight" });
-    expect(tab("Transition")).toHaveAttribute("aria-selected", "true");
-    expect(tab("Transition")).toHaveFocus();
+    expect(tab("Motion")).toHaveAttribute("aria-selected", "true");
+    expect(tab("Motion")).toHaveFocus();
+    expect(screen.getByLabelText("Motion style")).toBeInTheDocument();
     fireEvent.keyDown(list, { key: "End" });
     expect(tab("Info")).toHaveAttribute("aria-selected", "true");
     fireEvent.keyDown(list, { key: "ArrowRight" }); // wraps

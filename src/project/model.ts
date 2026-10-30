@@ -102,15 +102,32 @@ const textLook = {
     .object({
       color: hexColor,
       opacity: share,
-      shape: z.enum(["rect", "per-line", "jagged"]),
+      shape: z.enum(["rect", "per-line", "per-word", "jagged"]),
       padding: share,
       radius: share,
+      rotation: z.number().min(-45).max(45).optional(),
     })
     .strict()
     .optional(),
   /** Some lines drawn in another colour. */
   highlight: z
-    .object({ color: hexColor, lines: z.enum(["last", "first", "even"]) })
+    .object({
+      color: hexColor,
+      lines: z.enum(["last", "first", "even"]),
+      /** When present, highlight this zero-based word instead of a line. */
+      word: z
+        .object({
+          index: z.number().int().min(0).max(1999),
+          boxColor: hexColor,
+          opacity: share,
+          padding: share,
+          radius: share,
+          maxWords: z.number().int().min(1).max(8),
+          rotation: z.number().min(-45).max(45).optional(),
+        })
+        .strict()
+        .optional(),
+    })
     .strict()
     .optional(),
 };
@@ -187,8 +204,8 @@ export const MediaAssetSchema = z
     message: "only an image asset can be text",
     path: ["text"],
   })
-  .refine((a) => !a.alpha || a.type === "image", {
-    message: "only an image asset can be transparent",
+  .refine((a) => !a.alpha || a.type !== "audio", {
+    message: "only a video or image asset can be transparent",
     path: ["alpha"],
   })
   .refine((a) => (a.fpsNum === undefined) === (a.fpsDen === undefined), {

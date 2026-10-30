@@ -315,7 +315,8 @@ describe("the wizard", () => {
     expect(dialog.getByRole("radio", { name: "Auto" })).toBeChecked();
     expect(dialog.getByRole("radio", { name: "Vertical 9:16" })).toBeChecked();
     expect(dialog.getByRole("checkbox", { name: "Add subtitles to each clip" })).toBeChecked();
-    expect(dialog.getAllByText("Coming soon")).toHaveLength(2);
+    expect(dialog.getByLabelText("Reframe")).toHaveValue("center");
+    expect(dialog.getByRole("checkbox", { name: "Remove silences inside clips" })).toBeEnabled();
     expect(dialog.getByText(/never leave it/)).toBeInTheDocument();
 
     fireEvent.click(dialog.getByRole("radio", { name: "15–30 s" }));
@@ -346,7 +347,7 @@ describe("the wizard", () => {
     // two separate things to do: save files (asks for the folder first), or add to the timeline
     expect(dialog.getByRole("button", { name: "Choose folder and save 1 clip" })).toBeEnabled();
     expect(dialog.getByRole("button", { name: "Add 1 clip to the timeline" })).toBeEnabled();
-    expect(dialog.getByText("Coming soon")).toBeInTheDocument(); // new project per clip
+    expect(dialog.getByRole("button", { name: "New project per clip" })).toBeEnabled();
     fireEvent.click(dialog.getByRole("button", { name: "Back" }));
     expect(dialog.getByRole("list", { name: "Suggested clips" })).toBeInTheDocument();
 

@@ -32,7 +32,7 @@ import { usePlaybackStore } from "@/store/playback";
 import { useProjectStore } from "@/store/project";
 import { useSelectionStore } from "@/store/selection";
 import { useTimelineViewStore } from "@/store/timelineView";
-import { clipDuration, projectDuration } from "@/timeline/clips";
+import { clipDuration, projectDuration, findClip } from "@/timeline/clips";
 import { selectClipsReady, useAutoClipsStore } from "@/store/autoClips";
 import { useVoiceoverStore } from "@/store/voiceover";
 import { aiKindOf, openAiTools, openAutoClips, openKaraoke } from "@/timeline/ai";
@@ -448,6 +448,20 @@ export function Timeline() {
         <ContextMenu
           menu={menu}
           onClose={closeMenu}
+          onMotion={
+            findClip(project, menu.clipId)?.track.type === "video"
+              ? () => {
+                  const found = findClip(project, menu.clipId)!;
+                  const asset = project.assets.find((a) => a.id === found.clip.assetId);
+                  closeMenu();
+                  useSelectionStore.getState().select(menu.clipId);
+                  const ui = useUiStore.getState();
+                  ui.setSidePanel("inspector");
+                  ui.setInspectorTab(asset?.type === "video" ? "video" : "image", "motion");
+                  ui.focusInspectorTab("motion");
+                }
+              : undefined
+          }
           onSplit={() => {
             closeMenu();
             report(splitAtPlayhead());

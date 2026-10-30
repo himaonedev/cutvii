@@ -1,16 +1,7 @@
 import { useEffect, useState } from "react";
-import {
-  Captions,
-  Check,
-  Download,
-  Eraser,
-  Layers,
-  ScanFace,
-  Sparkles,
-  Trash2,
-  MicVocal,
-} from "lucide-react";
+import { Captions, Check, Download, Sparkles, Trash2, MicVocal } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SubjectEffectsPanel } from "./SubjectEffectsPanel";
 import type { TimelineClip } from "@/project/model";
 import { downloadWithConsent, modelSize, SPEECH_LANGUAGES, useAiStore, type SpeechModel } from "@/store/ai";
 import { useProjectStore } from "@/store/project";
@@ -69,17 +60,6 @@ const nameAndHint = (label: string): [string, string] => {
   return [name, rest.replace(/\)$/, "")];
 };
 
-/** AI tools that are planned but not built: shown so the tab says where it is going, clearly switched off. */
-const COMING: { icon: typeof Eraser; title: string; text: string }[] = [
-  { icon: Eraser, title: "Remove background", text: "Cut the subject out of its background." },
-  { icon: Layers, title: "Blur background", text: "Keep the subject sharp and soften what is behind it." },
-  {
-    icon: ScanFace,
-    title: "Text behind subject",
-    text: "Slide a title between the subject and the background.",
-  },
-];
-
 function ModelTile({
   model,
   selected,
@@ -120,7 +100,7 @@ function ModelTile({
 }
 
 /**
- * AI tools for a clip. Today: subtitles from speech (Whisper), running on this computer. The speech model
+ * Local AI tools for a clip: speech subtitles and portrait subject effects. The speech model
  * is not part of CutVii: it is downloaded once, and only after the user agrees.
  */
 export function AiPanel({ clip }: { clip: TimelineClip }) {
@@ -363,25 +343,7 @@ export function AiPanel({ clip }: { clip: TimelineClip }) {
         )}
       </div>
 
-      <div role="group" aria-label="More AI tools" className="space-y-1.5 border-t pt-3">
-        <p className="text-text-muted">More AI tools</p>
-        {COMING.map((tool) => (
-          <div
-            key={tool.title}
-            aria-disabled
-            className="flex items-center gap-2 rounded-md border border-dashed px-2 py-1.5 opacity-70"
-          >
-            <tool.icon className="size-4 shrink-0 text-text-muted" />
-            <div className="min-w-0 flex-1">
-              <p className="text-text">{tool.title}</p>
-              <p className="text-text-muted">{tool.text}</p>
-            </div>
-            <span className="shrink-0 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-muted">
-              Coming soon
-            </span>
-          </div>
-        ))}
-      </div>
+      <SubjectEffectsPanel clip={clip} />
     </div>
   );
 }

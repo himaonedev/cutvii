@@ -8,6 +8,17 @@ export interface OpenedProjectFile {
   missingPaths: string[];
 }
 
+export interface RecentProject {
+  index: number;
+  name: string;
+  path: string;
+  exists: boolean;
+  /** File modification time in Unix seconds, when available. */
+  modifiedAt: number | null;
+}
+
+export const recentProjectFiles = () => call<RecentProject[]>("recent_projects");
+
 const message = (e: unknown) =>
   typeof e === "string" ? e : e instanceof Error ? e.message : "Unknown error";
 

@@ -71,6 +71,8 @@ struct SideData {
 struct StreamTags {
     /// Older containers store rotation as a tag.
     rotate: Option<String>,
+    #[serde(alias = "ALPHA_MODE")]
+    alpha_mode: Option<String>,
 }
 
 fn gcd(a: u32, b: u32) -> u32 {
@@ -198,10 +200,15 @@ pub fn parse_probe_json(json: &str, media_type: MediaType) -> AppResult<MediaInf
         fps_num: rate.map(|r| r.0),
         fps_den: rate.map(|r| r.1),
         // only a candidate: the backend looks at the pixels before it keeps this
-        alpha: media_type == MediaType::Image
+        alpha: (media_type == MediaType::Image
             && video
                 .and_then(|v| v.pix_fmt.as_deref())
-                .is_some_and(pix_fmt_has_alpha),
+                .is_some_and(pix_fmt_has_alpha))
+            || (media_type == MediaType::Video
+                && video.is_some_and(|v| {
+                    v.codec_name.as_deref() == Some("vp9")
+                        && v.tags.as_ref().and_then(|t| t.alpha_mode.as_deref()) == Some("1")
+                })),
     })
 }
 
@@ -338,6 +345,21 @@ pub fn parse_stream_summary(json: &str) -> AppResult<StreamSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vp9_alpha_metadata_survives_reimport() {
+        for tag in ["alpha_mode", "ALPHA_MODE"] {
+            let json = format!(
+                r#"{{"streams":[{{"codec_type":"video","codec_name":"vp9","pix_fmt":"yuv420p","tags":{{"{tag}":"1"}}}}],"format":{{"duration":"1"}}}}"#
+            );
+            assert!(parse_probe_json(&json, MediaType::Video).unwrap().alpha);
+            assert!(
+                !parse_probe_json(&json.replace("vp9", "h264"), MediaType::Video)
+                    .unwrap()
+                    .alpha
+            );
+        }
+    }
 
     #[test]
     fn only_formats_that_can_hold_transparency_are_checked_further() {

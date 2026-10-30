@@ -3,6 +3,9 @@
 Plain JSON. Source of truth: `src/project/model.ts` (Zod) and `src-tauri/src/project/` (serde + `validate`).
 Both are tested against `fixtures/project-v1.json`; change the fixture and both test suites together.
 
+The optional asset flag `alpha: true` is supported for images and videos, including locally generated
+VP9 WebM subject cut-outs. Audio assets cannot carry this flag. Transparent layers reveal lower tracks.
+
 | Field                      | Notes                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `schemaVersion`            | Integer, currently `1`. Unknown versions are rejected until migrations exist (Phase 5).                                                                                                                                                                                                                                                                                                                                             |

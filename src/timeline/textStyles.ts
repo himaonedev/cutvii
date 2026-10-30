@@ -24,10 +24,18 @@ export function withStyle(spec: TextSpec, style: TextStyle): TextSpec {
   if (spec.align !== undefined) kept.align = spec.align;
   if (spec.wrap !== undefined) kept.wrap = spec.wrap;
   // only what the style sets: an absent part means "none", and nothing undefined ends up in the file
-  return {
+  const styled: TextSpec = {
     ...kept,
     ...Object.fromEntries(STYLE_KEYS.filter((k) => style[k] !== undefined).map((k) => [k, style[k]])),
   };
+  // Restyling an existing word state must retain which word is being spoken.
+  if (spec.highlight?.word && styled.highlight?.word) {
+    styled.highlight = {
+      ...styled.highlight,
+      word: { ...styled.highlight.word, index: spec.highlight.word.index },
+    };
+  }
+  return styled;
 }
 
 /** The look of a text, without its words, size or place: what "Save as style" keeps. */
@@ -63,13 +71,13 @@ export function matchesStyle(spec: TextSpec, style: TextStyle): boolean {
 
 /** Tag of the styles made for short vertical clips. */
 export const CLIPPER_TAG = "clipper";
-/** Tag of the styles designed around per-word timing, which CutVii does not have yet. */
+/** Tag of legacy designs that need an active-word configuration to animate. */
 export const WORD_TIMING_TAG = "word-timing";
 export const hasTag = (preset: Pick<StylePreset, "tags">, tag: string) => preset.tags?.includes(tag) === true;
 /** Why a style does less than its design, or null: without word times it shows plain captions. */
 export const styleLimit = (preset: Pick<StylePreset, "tags">): string | null =>
   hasTag(preset, WORD_TIMING_TAG)
-    ? "Word-by-word highlight is not available yet: this style shows plain captions."
+    ? "This preset shows plain captions. Enable Highlight active word in Customize for timed word boxes."
     : null;
 
 export const findStyle = (id: string) => STYLE_PRESETS.find((p) => p.id === id);

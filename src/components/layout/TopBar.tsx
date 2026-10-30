@@ -1,4 +1,5 @@
-import { Gift, Redo2, Undo2, Upload } from "lucide-react";
+import { Gift, Home, Redo2, Undo2, Upload } from "lucide-react";
+import { usePlaybackStore } from "@/store/playback";
 import { useShallow } from "zustand/react/shallow";
 import { AiMenu } from "@/components/autoclips/AiMenu";
 import { FileMenu } from "@/components/FileMenu";
@@ -32,6 +33,14 @@ export function TopBar() {
   return (
     <header className="flex h-12 shrink-0 items-center gap-1 border-b bg-surface-1 px-2 sm:px-3">
       <Logo />
+      <IconButton
+        label="Project home"
+        icon={<Home />}
+        onClick={() => {
+          usePlaybackStore.getState().pause();
+          useUiStore.getState().setAppView("home");
+        }}
+      />
       <span className="mx-2 hidden truncate text-sm text-text-muted sm:inline">{name}</span>
       <FileMenu />
       <AiMenu />

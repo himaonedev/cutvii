@@ -211,8 +211,21 @@ pub fn run(
     let mut last = 0.0_f64;
     loop {
         if cancel.load(Ordering::Relaxed) {
+            // Windows package managers may launch FFmpeg through a shim. Killing only the shim
+            // leaves the encoder running and its output locked; stop its descendants as well.
+            #[cfg(windows)]
+            {
+                command(Path::new("taskkill.exe"))
+                    .args(["/PID", &child.id().to_string(), "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .ok();
+            }
             child.kill().ok();
             child.wait().ok();
+            reader.join().ok();
+            err_reader.join().ok();
             cleanup();
             return Err(AppError::Cancelled);
         }
@@ -975,6 +988,50 @@ mod tests {
             let middle = e.region(&out, t, "400:90:120:135");
             assert!(near(middle, (255, 0, 0), 60), "no text at {t}: {middle:?}");
         }
+    }
+
+    #[test]
+    fn transparent_subject_video_keeps_the_background_visible_on_export() {
+        let Some(e) = env("subject-alpha") else {
+            return;
+        };
+        let red = e.red();
+        let cutout = e.make("subject.webm", &[
+            "-f", "lavfi", "-i",
+            "color=c=black@0.0:s=320x180:r=30:d=1,format=rgba,drawbox=x=110:y=40:w=100:h=100:c=blue@1.0:t=fill:replace=1",
+            "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-auto-alt-ref", "0",
+        ]);
+        assert!(e.backend.probe(Path::new(&cutout)).unwrap().alpha);
+        let mut foreground = asset("subject", &cutout, "video", Some(1.0));
+        foreground["alpha"] = json!(true);
+        let p = project(
+            vec![asset("red", &red, "video", Some(4.0)), foreground],
+            vec![
+                track(
+                    "v1",
+                    "video",
+                    0,
+                    false,
+                    false,
+                    vec![clip("base", "red", "v1", 0.0, 0.0, 1.0, 1.0)],
+                ),
+                track(
+                    "v2",
+                    "video",
+                    1,
+                    true,
+                    false,
+                    vec![clip("cutout", "subject", "v2", 0.0, 0.0, 1.0, 1.0)],
+                ),
+            ],
+        );
+        let out = e.dir.join("composite.mp4");
+        e.export(&p, &opts(Quality::Draft), &out).0.unwrap();
+        assert!(e.decodes_cleanly(&out));
+        let corner = e.region(&out, 0.5, "80:60:0:0");
+        let middle = e.region(&out, 0.5, "100:100:270:130");
+        assert!(near(corner, (255, 0, 0), 35), "background: {corner:?}");
+        assert!(near(middle, (0, 0, 255), 35), "foreground: {middle:?}");
     }
 
     /// A sticker (a picture with see-through pixels) is found to be one on import and keeps its transparency

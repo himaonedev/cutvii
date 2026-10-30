@@ -461,10 +461,9 @@ describe("finding the AI tools", () => {
     act(() => void openAiTools());
     expect(screen.getByRole("tab", { name: "AI" })).toHaveFocus();
 
-    // what is planned is shown as not available yet, never as a working control
-    const more = within(screen.getByRole("group", { name: "More AI tools" }));
-    expect(more.getAllByText("Coming soon")).toHaveLength(3);
-    expect(more.queryByRole("button")).not.toBeInTheDocument();
+    const subjects = within(screen.getByRole("region", { name: "Subject effects" }));
+    expect(subjects.getByRole("combobox", { name: "Effect" })).toBeInTheDocument();
+    expect(subjects.queryByText("Coming soon")).not.toBeInTheDocument();
     view.unmount();
   });
 

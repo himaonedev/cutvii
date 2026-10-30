@@ -35,6 +35,8 @@ Source of truth: `src-tauri/src/export/` (`plan.rs` builds the plan and FFmpeg f
   scaled to fit the export size and centred. The preview shows the same file the export overlays, and shows every
   text layer down to the first video or image under it.
 - Gaps show the background colour.
+- Assets marked `alpha: true` also preserve transparency over lower tracks. VP9 WebM videos use the
+  libvpx-vp9 decoder to retain their alpha plane; subject cut-outs use this path.
 - `hidden` tracks give no picture.
 - **Transform:** a clip's finished, canvas-sized layer (fit, background and crop already applied) is mirrored
   (`flipH`, `flipV`), scaled (`scale`), turned clockwise about its centre (`rotation`), faded (`opacity`) and laid

@@ -549,7 +549,7 @@ function LayerView({
     return <audio ref={register} aria-hidden {...common} />;
   }
   // A see-through picture is always fitted whole with nothing behind it, as the export draws it.
-  const seeThrough = asset.type === "image" && !!asset.alpha;
+  const seeThrough = !!asset.alpha;
   const mode = seeThrough ? "fit" : (layer.clip.fitMode ?? DEFAULT_FIT_MODE);
   // Same geometry as the export: computed from the real picture size, never the native pixel size.
   // Position, scale, rotation, mirroring and opacity of the whole layer (the export does the same).
@@ -658,13 +658,13 @@ function LayerView({
       className="pointer-events-none absolute inset-0 overflow-hidden"
       style={{
         zIndex: track.order,
-        backgroundColor: fitBackgroundColor(background),
+        backgroundColor: seeThrough ? undefined : fitBackgroundColor(background),
         ...placed,
         opacity: visible ? (placed.opacity ?? 1) : 0,
       }}
     >
-      {visible && backdropImage}
-      {layout.backdrop && visible && (
+      {visible && !seeThrough && backdropImage}
+      {layout.backdrop && visible && !seeThrough && (
         <VideoBackdrop source={videoRef} rect={layout.backdrop} style={blur} crop={crop} />
       )}
       {framed(layout.picture, {}, (style) => (

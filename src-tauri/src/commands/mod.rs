@@ -3,6 +3,8 @@ pub mod clip_tools;
 pub mod clipper;
 pub mod drop;
 pub mod export;
+pub mod finishing;
+pub mod subject;
 pub mod media;
 pub mod media_server;
 pub mod menu;

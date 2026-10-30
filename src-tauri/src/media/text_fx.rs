@@ -163,6 +163,61 @@ pub fn rounded_rect(layer: &mut [f32], w: usize, h: usize, r: Rect, radius: f32)
 }
 
 /// How far a zigzag edge is pushed in at height `t` (in teeth): 0 at a tip, 1 at a notch.
+/// Rotate only the box about its own centre; text masks are unaffected.
+pub fn rotated_box(
+    layer: &mut [f32],
+    w: usize,
+    h: usize,
+    r: Rect,
+    radius: f32,
+    degrees: f32,
+    tooth: Option<f32>,
+) {
+    if degrees.abs() < 1e-6 {
+        if let Some(t) = tooth {
+            jagged_rect(layer, w, h, r, t);
+        } else {
+            rounded_rect(layer, w, h, r, radius);
+        }
+        return;
+    }
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    let (cx, cy) = ((r.x0 + r.x1) / 2.0, (r.y0 + r.y1) / 2.0);
+    let (hw, hh) = ((r.x1 - r.x0) / 2.0, (r.y1 - r.y0) / 2.0);
+    let radius = radius.min(hw).min(hh).max(0.0);
+    let (ex, ey) = (
+        hw * cos.abs() + hh * sin.abs() + 1.0,
+        hw * sin.abs() + hh * cos.abs() + 1.0,
+    );
+    let rows =
+        ((cy - ey).floor().max(0.0) as usize)..((cy + ey).ceil().min(h as f32).max(0.0) as usize);
+    let cols =
+        ((cx - ex).floor().max(0.0) as usize)..((cx + ex).ceil().min(w as f32).max(0.0) as usize);
+    for y in rows {
+        for x in cols.clone() {
+            let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+            let (px, py) = (cos * dx + sin * dy + cx, -sin * dx + cos * dy + cy);
+            let coverage = if let Some(t) = tooth {
+                let t = t.max(0.0).min(hw / 2.0);
+                let phase = (py - r.y0) / (t * 2.0).max(1.0);
+                let (left, right) = (r.x0 + t * zigzag(phase), r.x1 - t * zigzag(phase + 0.5));
+                (py - r.y0 + 0.5)
+                    .clamp(0.0, 1.0)
+                    .min((r.y1 - py + 0.5).clamp(0.0, 1.0))
+                    * (px - left + 0.5)
+                        .clamp(0.0, 1.0)
+                        .min((right - px + 0.5).clamp(0.0, 1.0))
+            } else {
+                let (qx, qy) = ((px - cx).abs() - hw + radius, (py - cy).abs() - hh + radius);
+                let distance = qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - radius;
+                (0.5 - distance).clamp(0.0, 1.0)
+            };
+            let slot = &mut layer[y * w + x];
+            *slot = slot.max(coverage);
+        }
+    }
+}
+
 fn zigzag(t: f32) -> f32 {
     (2.0 * (t - t.floor()) - 1.0).abs()
 }

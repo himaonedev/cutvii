@@ -30,6 +30,10 @@ including the heavy display face Anton (OFL 1.1, © 2020 The Anton Project Autho
 
 ## Features
 
+- Project home on startup: **New Project**, **Open Project**, and recent saved
+  projects with file locations and modification dates. Use the Home button in
+  the editor to browse projects, then **Continue editing** to resume the current
+  session without discarding unsaved work.
 - Import video, audio and images (probed with FFprobe, thumbnails cached).
 - Multi-track timeline: move, trim, split at playhead, delete, snapping, zoom, context menu, undo/redo.
 - Track mute / hide, per-clip volume (0–200 %), Start / Duration fields in the inspector.
@@ -37,6 +41,11 @@ including the heavy display face Anton (OFL 1.1, © 2020 The Anton Project Autho
 - Save and reopen projects (`.cutvii`, versioned JSON with migrations), missing-media detection and relink.
 - Export H.264/AAC MP4 (resolution, frame rate, quality), with progress, cancel and ffprobe verification.
 - Audio-only export: M4A, MP3 or WAV.
+- Local motion presets: Punch-in at the playhead, Slow Push across a clip, and Text Pop,
+  with Subtle / Dynamic intensity. Select a video, still or text clip, then open
+  the **Motion** inspector tab (also accessible via right-click → **Motion presets…**).
+  Applying a preset is one undo step; its
+  keyframes remain editable. See [`docs/motion-presets.md`](docs/motion-presets.md).
 
 ## Screenshots
 
@@ -126,6 +135,8 @@ Shortcuts are ignored while typing in an input.
 
 ## Documentation
 
+- [`docs/word-subtitles.md`](docs/word-subtitles.md) — custom base boxes, active-word highlights and reusable subtitle presets.
+- [`docs/clip-finishing.md`](docs/clip-finishing.md) — local subject effects, manual reframing, silence removal and separate clip projects.
 - [`docs/project-schema.md`](docs/project-schema.md) — project file format, validation, migrations, save/open safety.
 - [`docs/export-rules.md`](docs/export-rules.md) — exactly how the timeline becomes a video.
 - [`docs/preview-limits.md`](docs/preview-limits.md) — what the preview does and where it is approximate.

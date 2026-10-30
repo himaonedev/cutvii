@@ -36,6 +36,7 @@ function Nudge({ clip, edge }: { clip: ReviewClip; edge: Edge }) {
 /** The selected candidate: a player for just that stretch, a mini timeline with its two cuts, and the words. */
 export function ClipPreview({ clip }: { clip: ReviewClip }) {
   const context = useAutoClipsStore((s) => s.context);
+  const settings = useAutoClipsStore((s) => s.settings);
   const sentences = useAutoClipsStore((s) => s.sentences);
   const snap = useAutoClipsStore((s) => s.snap);
   const mediaRef = useRef<HTMLVideoElement & HTMLAudioElement>(null);
@@ -145,7 +146,20 @@ export function ClipPreview({ clip }: { clip: ReviewClip }) {
           src={mediaUrl(context.path)}
           preload="metadata"
           playsInline
-          className={context.video ? "mx-auto max-h-[38vh] w-full object-contain" : "hidden"}
+          className={context.video ? "mx-auto max-h-[38vh] w-full" : "hidden"}
+          style={
+            context.video && settings.output !== "keep"
+              ? {
+                  aspectRatio: settings.output === "vertical" ? "9 / 16" : "1 / 1",
+                  width: settings.output === "vertical" ? "min(100%, 21.375vh)" : "min(100%, 38vh)",
+                  objectFit: "cover",
+                  objectPosition:
+                    settings.reframe === "manual"
+                      ? `${(settings.reframeX ?? 0.5) * 100}% ${(settings.reframeY ?? 0.5) * 100}%`
+                      : "50% 50%",
+                }
+              : { objectFit: "contain" }
+          }
           onTimeUpdate={onTime}
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}

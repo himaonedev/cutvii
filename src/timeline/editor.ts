@@ -34,6 +34,7 @@ import { planPlacement, type DropPlacement } from "./placement";
 import { setTextFade } from "./text";
 import { setClipTransform, type Transform } from "./transform";
 import { setTransformAt } from "./transformBox";
+import { setMotionPreset, type MotionPresetId, type MotionStrength } from "./motionPresets";
 
 export { newDropPlacement, type DropPlacement, type DropTarget } from "./placement";
 
@@ -203,6 +204,17 @@ export function applyColorToAll(color: ColorAdjust | null): EditResult {
 
 export function changeTransform(clipId: string, patch: Partial<Transform> | null): EditResult {
   return run(patch ? "Transform" : "Reset transform", (p) => setClipTransform(p, clipId, patch));
+}
+
+/** A preset is one undo step and remains editable as ordinary keyframes. */
+export function applyMotionPreset(
+  clipId: string,
+  preset: MotionPresetId,
+  strength: MotionStrength,
+  time: number,
+  seconds: number,
+): EditResult {
+  return run("Apply motion preset", (p) => setMotionPreset(p, clipId, preset, strength, time, seconds));
 }
 
 /** Move, size or turn a clip by hand in the preview: keyed values get a keyframe at `time`. One undo step. */

@@ -35,13 +35,19 @@ export function useSubtitleLook() {
 export function SubtitleLook({ disabled = false }: { disabled?: boolean }) {
   const { subtitle, at, size } = useSubtitleLook();
   const [customising, setCustomising] = useState(false);
+  const [presetName, setPresetName] = useState("");
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const width = useProjectStore((s) => s.project.settings.width);
   const height = useProjectStore((s) => s.project.settings.height);
   const canvas = { width, height };
   return (
     <div className="space-y-2">
       <div role="group" aria-label="Subtitle look" className="space-y-1">
-        <StylePreview style={subtitle.style} label={subtitle.name} className="h-16 w-full rounded-md" />
+        <StylePreview
+          style={subtitle.style}
+          label={subtitle.style.highlight?.word ? "Ini contoh subtitle" : subtitle.name}
+          className="h-16 w-full rounded-md"
+        />
         <p className="text-text-muted">
           {subtitle.name}
           {subtitle.customised ? " (customized)" : ""}: the subtitles will look like this.
@@ -102,6 +108,38 @@ export function SubtitleLook({ disabled = false }: { disabled?: boolean }) {
               onChange: (to) => useTextStyleStore.getState().setSubtitlePosition(to),
             }}
           />
+          <div className="mt-3 space-y-2 border-t pt-3">
+            <label className="block text-xs">
+              Preset name
+              <input
+                value={presetName}
+                maxLength={40}
+                onChange={(e) => setPresetName(e.target.value)}
+                className="mt-1 h-9 w-full rounded-md border bg-surface-2 px-2"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={!presetName.trim()}
+              className="h-9 rounded-md border px-3 text-xs disabled:opacity-40"
+              onClick={() => {
+                const result = useTextStyleStore.getState().saveAs(presetName, subtitle.style, subtitle.fade);
+                if ("problem" in result) setSaveMessage(result.problem);
+                else {
+                  useTextStyleStore.getState().setSubtitleStyle(result.id);
+                  setSaveMessage("Saved in My styles.");
+                  setPresetName("");
+                }
+              }}
+            >
+              Save as subtitle preset
+            </button>
+            {saveMessage && (
+              <p role="status" className="text-xs text-text-muted">
+                {saveMessage}
+              </p>
+            )}
+          </div>
         </div>
       )}
       <StyleList

@@ -36,10 +36,11 @@ beforeEach(() => {
 });
 
 describe("pictures with see-through pixels", () => {
-  it("may only be images in the project file", () => {
+  it("may be images or videos, but never audio in the project file", () => {
     const base = { id: "x", path: "/m/x.png" };
     expect(MediaAssetSchema.safeParse({ ...base, type: "image", alpha: true }).success).toBe(true);
-    expect(MediaAssetSchema.safeParse({ ...base, type: "video", alpha: true }).success).toBe(false);
+    expect(MediaAssetSchema.safeParse({ ...base, type: "video", alpha: true }).success).toBe(true);
+    expect(MediaAssetSchema.safeParse({ ...base, type: "audio", alpha: true }).success).toBe(false);
   });
 
   it("let the video below show in the preview, an opaque picture covers it", () => {

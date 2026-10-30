@@ -215,10 +215,27 @@ export function CreateStep() {
               <ListPlus /> Add {clips} to the timeline
             </Button>
           )}
-          <p aria-disabled className="flex items-center gap-2 text-xs text-text-muted opacity-70">
-            New project per clip
-            <span className="rounded-sm bg-surface-1 px-1.5 py-0.5 text-[10px]">Coming soon</span>
+          <Button
+            variant="secondary"
+            disabled={count === 0 || out.busy !== null}
+            onClick={() => void out.saveProjects()}
+          >
+            <FolderOpen /> New project per clip
+          </Button>
+          <p className="text-xs text-text-muted">
+            Saves one editable .cutvii file per selected clip in a folder you choose. Source media stays in
+            its original location.
           </p>
+          {out.busy === "projects" && (
+            <p role="status" className="text-xs text-text-muted">
+              {out.stage}
+            </p>
+          )}
+          {out.projectsSaved !== null && (
+            <p role="status" className="text-xs text-success">
+              Saved {out.projectsSaved} editable projects. Open them from Project Home.
+            </p>
+          )}
         </Card>
       </div>
       {out.problem && (

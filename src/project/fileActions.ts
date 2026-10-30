@@ -61,6 +61,7 @@ export async function createProjectWithCanvas(canvas: Canvas, pending: boolean):
   resetSession();
   useUiStore.getState().setCanvasNotice(null);
   useUiStore.getState().setNewProjectOpen(false);
+  useUiStore.getState().setAppView("editor");
 }
 
 export function openProjectFlow(): Promise<void> {
@@ -85,6 +86,7 @@ async function openWith(open: () => Promise<OpenedProjectFile | null>): Promise<
     }
     useProjectStore.getState().loadProject(parsed.project, opened.path, opened.missingPaths);
     resetSession();
+    useUiStore.getState().setAppView("editor");
 
     if (opened.missingPaths.length > 0) {
       await messageDialog("Some media files are missing", [

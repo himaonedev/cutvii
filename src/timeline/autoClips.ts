@@ -94,6 +94,10 @@ export function durationWarning(
 }
 
 export interface AutoClipsSettings {
+  reframe?: "center" | "manual";
+  reframeX?: number;
+  reframeY?: number;
+  removeSilences?: boolean;
   length: LengthId;
   customMin: number;
   customMax: number;
@@ -119,6 +123,10 @@ export interface AutoClipsSettings {
 }
 
 export const DEFAULT_SETTINGS: AutoClipsSettings = {
+  reframe: "center",
+  reframeX: 0.5,
+  reframeY: 0.5,
+  removeSilences: false,
   length: "medium",
   customMin: 20,
   customMax: 45,
