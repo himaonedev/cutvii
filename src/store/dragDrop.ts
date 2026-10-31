@@ -8,13 +8,21 @@ export interface DropPreview {
   start: number;
   duration: number;
   label: string;
+  beforeTrackId?: string | null;
   /** Shown when the lane under the pointer cannot take this media and another one is used. */
   hint?: string;
 }
 
 interface DragDropState {
   /** A drag is in progress (a media card, files from the OS, or a transition from the gallery). */
-  dragging: { source: "library" | "os" | "transition"; label: string; x: number; y: number } | null;
+  dragging: {
+    source: "library" | "os" | "transition";
+    label: string;
+    x: number;
+    y: number;
+    thumbnailPath?: string;
+    mediaType?: "video" | "image" | "audio";
+  } | null;
   preview: DropPreview | null;
   set: (patch: Partial<Pick<DragDropState, "dragging" | "preview">>) => void;
   clear: () => void;

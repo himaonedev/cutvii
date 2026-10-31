@@ -1,3 +1,4 @@
+import { AppearanceMenu } from "@/components/AppearanceMenu";
 import { Gift, Home, Redo2, Undo2, Upload } from "lucide-react";
 import { usePlaybackStore } from "@/store/playback";
 import { useShallow } from "zustand/react/shallow";
@@ -41,7 +42,7 @@ export function TopBar() {
           useUiStore.getState().setAppView("home");
         }}
       />
-      <span className="mx-2 hidden truncate text-sm text-text-muted sm:inline">{name}</span>
+      <span className="mx-2 hidden max-w-40 truncate text-sm text-text-muted sm:inline">{name}</span>
       <FileMenu />
       <AiMenu />
       {/* on narrow screens this lives in the File menu */}
@@ -88,8 +89,9 @@ export function TopBar() {
       >
         {canvasPending ? "Canvas: Original" : canvasLabel(canvas)}
       </Button>
-      <div className="ml-auto flex items-center gap-3">
-        <span className="hidden text-xs text-text-muted sm:inline" title={filePath ?? undefined}>
+      <div className="ml-auto flex items-center gap-2">
+        <AppearanceMenu />
+        <span className="hidden text-xs text-text-muted xl:inline" title={filePath ?? undefined}>
           {saving
             ? "Saving…"
             : dirty

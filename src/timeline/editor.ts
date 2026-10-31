@@ -1,3 +1,4 @@
+import { duplicateClipAt, type DuplicateDrop } from "./duplicateDrag";
 /** User-level editing actions: read the stores, run one undoable command, keep selection sane. */
 import { useSelectionStore } from "@/store/selection";
 import { useUiStore } from "@/store/ui";
@@ -7,7 +8,6 @@ import { clipEnd, EPS, minClipDuration } from "./clips";
 import type { AudioClean, ClipTransition, Crop, FitBackground, FitMode } from "@/project/model";
 import {
   addClip,
-  addTrack,
   applyFitBackgroundToAll,
   deleteClip,
   moveClip,
@@ -30,11 +30,18 @@ import type { KeyProp } from "./transform";
 import { detachAudio, setClipClean, setClipDuck, setClipSound, type ClipSound } from "./audio";
 import { setClipColor, setClipLut, type ClipLut, type ColorAdjust } from "./color";
 import { setColorOnAll } from "./looks";
+import { insertLayerTrack, moveClipToNewLayer, deleteLayerTrack, cleanLayersAfterMove } from "./layerLayout";
 import { planPlacement, type DropPlacement } from "./placement";
 import { setTextFade } from "./text";
 import { setClipTransform, type Transform } from "./transform";
 import { setTransformAt } from "./transformBox";
-import { setMotionPreset, type MotionPresetId, type MotionStrength } from "./motionPresets";
+import {
+  setTextMotionOnClips,
+  setTextMotionOnTrack,
+  setMotionPreset,
+  type MotionPresetId,
+  type MotionStrength,
+} from "./motionPresets";
 
 export { newDropPlacement, type DropPlacement, type DropTarget } from "./placement";
 
@@ -110,12 +117,29 @@ export function addAssetToTimeline(
 }
 
 export function moveClipTo(clipId: string, start: number, trackId?: string): EditResult {
-  return run("Move clip", (p) => moveClip(p, clipId, { start, trackId }));
+  return run("Move clip", (p) => cleanLayersAfterMove(p, moveClip(p, clipId, { start, trackId })));
 }
 
 /** Drop a clip on the timeline: onto another clip it goes in before or after it and makes room. */
+export function duplicateClipByDrag(clipId: string, to: DuplicateDrop, id: string): EditResult {
+  const result = run("Duplicate clip", (p) => duplicateClipAt(p, clipId, to, id));
+  if (result.ok) useSelectionStore.getState().select(id);
+  return report(result);
+}
+
+export function dropClipOnNewLayer(
+  clipId: string,
+  start: number,
+  trackId: string,
+  beforeTrackId?: string | null,
+): EditResult {
+  return run("Move clip to new layer", (p) =>
+    cleanLayersAfterMove(p, moveClipToNewLayer(p, clipId, start, trackId, beforeTrackId)),
+  );
+}
+
 export function dropClipAt(clipId: string, start: number, trackId?: string): EditResult {
-  return run("Move clip", (p) => placeClip(p, clipId, { start, trackId }));
+  return run("Move clip", (p) => cleanLayersAfterMove(p, placeClip(p, clipId, { start, trackId })));
 }
 
 export function trimClipEdge(clipId: string, edge: "start" | "end", time: number): EditResult {
@@ -217,6 +241,27 @@ export function applyMotionPreset(
   return run("Apply motion preset", (p) => setMotionPreset(p, clipId, preset, strength, time, seconds));
 }
 
+/** Batch subtitle animation is one undoable edit. */
+export function applyTextMotionToTrack(
+  trackId: string,
+  preset: MotionPresetId,
+  strength: MotionStrength,
+  seconds: number,
+): EditResult {
+  return run("Apply text motion to track", (p) =>
+    setTextMotionOnTrack(p, trackId, preset, strength, seconds),
+  );
+}
+
+export function applyMotionToTextSelection(
+  ids: string[],
+  preset: MotionPresetId,
+  strength: MotionStrength,
+  seconds: number,
+): EditResult {
+  return run("Apply motion to selected text", (p) => setTextMotionOnClips(p, ids, preset, strength, seconds));
+}
+
 /** Move, size or turn a clip by hand in the preview: keyed values get a keyframe at `time`. One undo step. */
 export function changeTransformAt(
   clipId: string,
@@ -285,7 +330,7 @@ export function placeAssetAtDrop(assetId: string, placement: DropPlacement): Edi
   const result = run("Add clip", (pr) => {
     let next = pr;
     if (!plan.trackId) {
-      const t = addTrack(next, plan.trackType, trackId);
+      const t = insertLayerTrack(next, plan.trackType, trackId, plan.beforeTrackId);
       if (!t.ok) return t;
       next = t.project;
     }
@@ -297,6 +342,12 @@ export function placeAssetAtDrop(assetId: string, placement: DropPlacement): Edi
     useSelectionStore.getState().select(id);
     if (plan.hint) useUiStore.getState().setNotice(plan.hint);
   }
+  return result;
+}
+
+export function deleteTimelineTrack(trackId: string): EditResult {
+  const result = run("Delete track", (p) => deleteLayerTrack(p, trackId));
+  if (result.ok) pruneSelection();
   return result;
 }
 
@@ -364,7 +415,7 @@ export function deleteSelected(): EditResult {
       if (!r.ok) return r;
       next = r.project;
     }
-    return { ok: true, project: next };
+    return cleanLayersAfterMove(p, { ok: true, project: next });
   });
   if (result.ok) pruneSelection();
   return result;

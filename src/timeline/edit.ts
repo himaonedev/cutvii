@@ -410,11 +410,12 @@ export function addTrack(
   id: string = crypto.randomUUID(),
 ): EditResult {
   const label = type === "video" ? "Video" : "Audio";
-  const count = project.tracks.filter((t) => t.type === type).length;
+  let number = project.tracks.filter((t) => t.type === type).length + 1;
+  while (project.tracks.some((t) => t.name === `${label} ${number}`)) number += 1;
   const order = Math.max(-1, ...project.tracks.map((t) => t.order)) + 1;
   const track: TimelineTrack = {
     id,
-    name: `${label} ${count + 1}`,
+    name: `${label} ${number}`,
     type,
     order,
     muted: false,

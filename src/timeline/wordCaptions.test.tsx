@@ -108,3 +108,38 @@ it("validates custom word parameters and does not mutate the saved style between
     }).success,
   ).toBe(false);
 });
+
+it("offers timed text-only word highlights directly under Highlight a line and saves them", () => {
+  render(<SubtitleLook />);
+  fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Highlight a line" }));
+  expect(screen.getByLabelText("Which lines")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Highlight mode"), { target: { value: "word" } });
+  expect(screen.queryByLabelText("Which lines")).not.toBeInTheDocument();
+  expect(screen.getByRole("checkbox", { name: "Highlight a line" })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "Highlight active word" })).not.toBeChecked();
+  fireEvent.change(screen.getByLabelText("Highlight colour"), { target: { value: "#ffdd22" } });
+  fireEvent.change(screen.getByLabelText("Words per caption"), { target: { value: "4" } });
+  fireEvent.change(screen.getByLabelText("Preset name"), { target: { value: "Word text colour" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save as subtitle preset" }));
+  const preset = useTextStyleStore.getState().mine.find((p) => p.name === "Word text colour")!;
+  expect(preset.style.highlight).toMatchObject({ color: "#FFDD22", word: { opacity: 0, maxWords: 4 } });
+  const states = activeWordCaptions(
+    [{ start: 0, duration: 2, text: "satu dua tiga empat" }],
+    preset.style,
+    30,
+  );
+  expect(states.map((s) => s.activeWord)).toEqual([0, 1, 2, 3]);
+  expect(states.every((s) => s.text === "satu dua tiga empat")).toBe(true);
+});
+it("switches back to line highlights and to boxed active words without mixing the modes", () => {
+  render(<SubtitleLook />);
+  fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Highlight a line" }));
+  fireEvent.change(screen.getByLabelText("Highlight mode"), { target: { value: "word" } });
+  fireEvent.change(screen.getByLabelText("Highlight mode"), { target: { value: "line" } });
+  expect(screen.getByLabelText("Which lines")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Highlight active word" }));
+  expect(screen.getByRole("checkbox", { name: "Highlight a line" })).not.toBeChecked();
+  expect(screen.getByLabelText("Active word box opacity")).toBeInTheDocument();
+});

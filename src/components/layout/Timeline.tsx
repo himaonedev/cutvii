@@ -1,8 +1,8 @@
+import { useMarqueeSelection } from "@/timeline/useMarqueeSelection";
+import { selectTimelineClip, selectTimelineKind, type ClipSelectionKind } from "@/timeline/timelineSelection";
 import { formatTimecode } from "@/lib/timecode";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  Eye,
-  EyeOff,
   AudioLines,
   Captions,
   Magnet,
@@ -13,11 +13,11 @@ import {
   Sparkles,
   Trash2,
   Type,
-  Volume2,
-  VolumeX,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import { useTrackLocksStore, trackLockKey } from "@/store/trackLocks";
+import { TrackHeader } from "@/components/timeline/TrackHeader";
 import { ClipView } from "@/components/timeline/ClipView";
 import { TransitionBlock } from "@/components/timeline/TransitionBlock";
 import { TooLongBadge } from "@/components/inspector/CaptionCheck";
@@ -41,7 +41,7 @@ import { resplitNotice, resplitTrack } from "@/timeline/resplit";
 import { useUiStore } from "@/store/ui";
 import { copySelected, cutSelected } from "@/timeline/clipboard";
 import { freezeFrameAtPlayhead } from "@/timeline/freeze";
-import { deleteSelected, report, splitAtPlayhead, toggleTrackFlag } from "@/timeline/editor";
+import { deleteSelected, report, splitAtPlayhead } from "@/timeline/editor";
 import { transitionOf, transitionOutOf } from "@/timeline/transitions";
 import {
   contentWidth,
@@ -56,19 +56,20 @@ import { addTextAtPlayhead } from "@/timeline/text";
 import { waveWindow } from "@/timeline/waveform";
 import { canZoomIn, canZoomOut, zoomPercent } from "@/timeline/zoom";
 import { zoomStep, zoomToFit } from "@/timeline/zoomController";
+import { layerLayout } from "@/timeline/layerLayout";
 import { useTimelineDrag } from "@/timeline/useTimelineDrag";
 
 const FALLBACK_VIEWPORT = 1000;
 const BUFFER_PX = 200;
 
-function Playhead({ pps }: { pps: number }) {
+function Playhead({ pps, ruler = false }: { pps: number; ruler?: boolean }) {
   const playhead = usePlaybackStore((s) => s.playhead);
   return (
     <div
       aria-hidden
-      data-testid="playhead"
+      data-testid={ruler ? "ruler-playhead" : "playhead"}
       className="pointer-events-none absolute top-0 bottom-0 z-20 w-px bg-accent"
-      style={{ left: timeToX(playhead, pps) }}
+      style={{ left: timeToX(playhead, pps), top: ruler ? 0 : RULER_HEIGHT }}
     >
       <div className="-ml-[5px] h-[10px] w-[11px] rounded-b-sm bg-accent" />
     </div>
@@ -78,8 +79,10 @@ function Playhead({ pps }: { pps: number }) {
 export function Timeline() {
   const project = useProjectStore((s) => s.project);
   const clipsReady = useAutoClipsStore(selectClipsReady);
+  const trackLocks = useTrackLocksStore((s) => s.locks);
   const selectedIds = useSelectionStore((s) => s.selectedClipIds);
   const pps = useTimelineViewStore((s) => s.pps);
+  const trackHeights = useTimelineViewStore((s) => s.trackHeights);
   const snapping = useTimelineViewStore((s) => s.snapping);
   const toggleSnapping = useTimelineViewStore((s) => s.toggleSnapping);
   const scrollTarget = useTimelineViewStore((s) => s.scrollTarget);
@@ -87,7 +90,8 @@ export function Timeline() {
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const lanesRef = useRef<HTMLDivElement>(null);
-  const [viewport, setViewport] = useState({ left: 0, width: 0 });
+  const marquee = useMarqueeSelection(lanesRef);
+  const [viewport, setViewport] = useState({ left: 0, width: 0, height: 0 });
   const [menu, setMenu] = useState<MenuState | null>(null);
   const { drag, begin } = useTimelineDrag(lanesRef);
 
@@ -95,7 +99,17 @@ export function Timeline() {
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
-    const measure = () => setViewport({ left: el.scrollLeft, width: el.clientWidth });
+    const measure = () =>
+      setViewport((previous) => {
+        const next = {
+          left: el.scrollLeft,
+          width: Math.max(0, el.clientWidth - HEADER_WIDTH),
+          height: el.clientHeight,
+        };
+        return previous.left === next.left && previous.width === next.width && previous.height === next.height
+          ? previous
+          : next;
+      });
     measure();
     el.addEventListener("scroll", measure, { passive: true });
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
@@ -106,14 +120,6 @@ export function Timeline() {
     };
   }, []);
 
-  // After a zoom, put the scroll where the zoom math says so the anchor (playhead or cursor) stays put.
-  useLayoutEffect(() => {
-    const el = scrollerRef.current;
-    if (!el || !scrollTarget) return;
-    el.scrollLeft = scrollTarget.left;
-    setViewport({ left: el.scrollLeft, width: el.clientWidth });
-  }, [scrollTarget]);
-
   const view = drag?.preview ?? project;
   const assets = useMemo(() => new Map(project.assets.map((a) => [a.id, a])), [project.assets]);
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -123,13 +129,34 @@ export function Timeline() {
   const from = xToTime(viewport.left - BUFFER_PX, pps);
   const to = xToTime(viewport.left + vw + BUFFER_PX, pps);
   const width = contentWidth(projectDuration(view), vw, pps);
+  const appliedScrollTarget = useRef<typeof scrollTarget>(null);
+  // Width can shrink below the previous scroll after zoom/delete/resize. Clamp before windowing
+  // visible clips, including when the browser does not dispatch another scroll event.
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const laneWidth = el.clientWidth ? Math.max(0, el.clientWidth - HEADER_WIDTH) : FALLBACK_VIEWPORT;
+    const requested =
+      scrollTarget && scrollTarget !== appliedScrollTarget.current ? scrollTarget.left : el.scrollLeft;
+    el.scrollLeft = Math.max(0, Math.min(Math.max(0, width - laneWidth), requested));
+    appliedScrollTarget.current = scrollTarget;
+    setViewport((previous) => {
+      const next = { left: el.scrollLeft, width: el.clientWidth ? laneWidth : 0, height: el.clientHeight };
+      return previous.left === next.left && previous.width === next.width && previous.height === next.height
+        ? previous
+        : next;
+    });
+  }, [scrollTarget, width]);
 
   const onBodyPointerDown = useCallback(
     (e: React.PointerEvent, clip: { id: string }) => {
+      if (e.button !== 0) return;
+      if (e.currentTarget instanceof HTMLElement) e.currentTarget.focus({ preventScroll: true });
+      e.preventDefault();
       const additive = e.shiftKey || e.metaKey || e.ctrlKey;
       const sel = useSelectionStore.getState();
-      if (additive) sel.select(clip.id, true);
-      else if (!sel.selectedClipIds.includes(clip.id)) sel.select(clip.id);
+      if (additive || !sel.selectedClipIds.includes(clip.id))
+        selectTimelineClip(useProjectStore.getState().project, clip.id, e);
       if (!additive) begin(e, clip.id, "move");
     },
     [begin],
@@ -147,14 +174,23 @@ export function Timeline() {
     if (!sel.selectedClipIds.includes(clip.id)) sel.select(clip.id);
     setMenu({ x: e.clientX, y: e.clientY, clipId: clip.id });
   }, []);
-  const onActivate = useCallback((clip: { id: string }, additive: boolean) => {
-    useSelectionStore.getState().select(clip.id, additive);
-  }, []);
+  const onActivate = useCallback(
+    (clip: { id: string }, modifiers: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean }) => {
+      selectTimelineClip(useProjectStore.getState().project, clip.id, modifiers);
+    },
+    [],
+  );
   const closeMenu = useCallback(() => setMenu(null), []);
 
   // while a drop would create a track, draw the row it will occupy
   const newTrackRow = dropPreview && dropPreview.trackId === null;
-  const height = RULER_HEIGHT + (project.tracks.length + (newTrackRow ? 1 : 0)) * ROW_HEIGHT;
+  const layout = layerLayout(view.tracks, trackHeights);
+  const height = RULER_HEIGHT + layout.height;
+  const insertionTop = newTrackRow
+    ? dropPreview.beforeTrackId && layout.tracks.some((t) => t.id === dropPreview.beforeTrackId)
+      ? layout.top(dropPreview.beforeTrackId)
+      : layout.zones[dropPreview.trackType]
+    : 0;
   const ghost = dropPreview && (
     <div
       data-testid="drop-ghost"
@@ -171,9 +207,10 @@ export function Timeline() {
   return (
     <Panel
       title="Timeline"
-      className="min-h-0 border-t lg:col-span-3 lg:row-start-2"
+      className="min-h-0 overflow-hidden border-t lg:col-span-3 lg:row-start-2"
+      headerClassName="h-auto min-h-10 flex-wrap gap-2 py-1"
       actions={
-        <div className="flex items-center">
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-y-1">
           <button
             type="button"
             aria-label="AI tools"
@@ -236,6 +273,26 @@ export function Timeline() {
             icon={<Scissors />}
             onClick={() => report(splitAtPlayhead())}
           />
+          <select
+            aria-label="Select timeline clips"
+            title="Ctrl+click: toggle · Shift+click: range · Drag empty space: box select · Ctrl+A: all"
+            value=""
+            className="h-8 w-24 rounded-md border bg-surface-2 px-2 text-xs"
+            onChange={(e) => {
+              selectTimelineKind(useProjectStore.getState().project, e.target.value as ClipSelectionKind);
+              lanesRef.current?.focus({ preventScroll: true });
+            }}
+          >
+            <option value="" disabled>
+              Select…
+            </option>
+            <option value="all">All clips</option>
+            <option value="text">Text / subtitles</option>
+            <option value="video">Videos</option>
+            <option value="audio">Audio</option>
+            <option value="image">Images</option>
+            <option value="clear">Clear selection</option>
+          </select>
           <IconButton
             label="Delete selected (Del)"
             icon={<Trash2 />}
@@ -274,172 +331,218 @@ export function Timeline() {
         </div>
       }
     >
-      {/* more tracks than fit: the headers and the lanes scroll up and down together */}
-      <div className="flex min-h-0 flex-1 items-start overflow-y-auto select-none" data-timeline-area>
-        {/* track headers */}
-        <div className="min-h-full shrink-0 border-r bg-surface-1" style={{ width: HEADER_WIDTH }}>
-          <div style={{ height: RULER_HEIGHT }} className="border-b" />
-          {project.tracks.map((t) => (
-            <div
-              key={t.id}
-              style={{ height: ROW_HEIGHT }}
-              className="flex flex-col justify-center gap-0.5 border-b px-1.5"
-            >
-              <span className="truncate px-0.5 text-xs text-text-muted">{t.name}</span>
-              <div className="flex">
-                <IconButton
-                  label={t.muted ? `Unmute ${t.name}` : `Mute ${t.name}`}
-                  icon={t.muted ? <VolumeX /> : <Volume2 />}
-                  size="icon-sm"
-                  aria-pressed={t.muted}
-                  className={cn("pointer-coarse:size-11", t.muted && "text-danger")}
-                  onClick={() => toggleTrackFlag(t.id, "muted")}
-                />
-                {t.type === "video" && (
-                  <IconButton
-                    label={t.hidden ? `Show ${t.name}` : `Hide ${t.name}`}
-                    icon={t.hidden ? <EyeOff /> : <Eye />}
-                    size="icon-sm"
-                    aria-pressed={t.hidden}
-                    className={cn("pointer-coarse:size-11", t.hidden && "text-danger")}
-                    onClick={() => toggleTrackFlag(t.id, "hidden")}
-                  />
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-
+      {/* One scroll owner keeps tracks, headers and ruler in the same coordinate system. */}
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden select-none" data-timeline-area>
         <div
           ref={scrollerRef}
           data-timeline-scroller
-          className="relative min-h-full min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
+          data-timeline-shared-scroll
+          className="relative isolate flex min-h-0 min-w-0 flex-1 items-start overflow-auto overscroll-contain"
         >
-          <div className="relative" style={{ width, height: Math.max(height, 0) }}>
-            <Ruler pps={pps} from={from} to={to} />
-
+          <div
+            data-timeline-surface
+            className="relative flex shrink-0 items-start"
+            style={{ width: HEADER_WIDTH + width, minHeight: Math.max(height, viewport.height) }}
+          >
+            {/* track headers */}
             <div
-              ref={lanesRef}
-              data-timeline-lanes
-              className="absolute inset-x-0"
-              style={{ top: RULER_HEIGHT }}
+              className="sticky left-0 z-40 shrink-0 border-r bg-surface-1"
+              data-timeline-headers
+              style={{ width: HEADER_WIDTH, minHeight: Math.max(height, viewport.height) }}
             >
-              {view.tracks.map((track) => (
+              <div
+                style={{ height: RULER_HEIGHT }}
+                className="sticky top-0 z-50 border-b bg-surface-1"
+                data-timeline-corner
+              />
+              {layout.tracks.map((t) => (
                 <div
-                  key={track.id}
-                  role="group"
-                  aria-label={`${track.name} lane`}
-                  data-track-id={track.id}
-                  className={cn(
-                    "relative border-b bg-surface-2/40",
-                    dropPreview?.trackId === track.id &&
-                      "bg-accent-soft outline outline-1 -outline-offset-1 outline-accent",
-                  )}
-                  data-drop-active={dropPreview?.trackId === track.id || undefined}
-                  style={{ height: ROW_HEIGHT }}
-                  onPointerDown={(e) => {
-                    if (e.target === e.currentTarget) useSelectionStore.getState().clear();
+                  key={t.id}
+                  style={{
+                    height: layout.rowHeight(t.id),
+                    position: "absolute",
+                    top: RULER_HEIGHT + layout.top(t.id),
+                    left: 0,
+                    right: 0,
                   }}
+                  className="border-b"
                 >
-                  {visibleClips(track.clips, from, to).map((clip) => {
-                    const asset = assets.get(clip.assetId);
-                    const hasWave = asset && asset.type !== "image" && !missing.has(asset.path);
-                    const wave = hasWave
-                      ? waveWindow(
-                          timeToX(clip.timelineStart, pps),
-                          timeToX(clipDuration(clip), pps),
-                          viewport.left - BUFFER_PX,
-                          viewport.left + vw + BUFFER_PX,
-                        )
-                      : null;
-                    const coming = transitionOf(clip);
-                    const going = transitionOutOf(clip);
-                    return (
-                      <Fragment key={clip.id}>
-                        <ClipView
-                          clip={clip}
-                          name={asset ? assetName(asset) : "Missing media"}
-                          // a video's detached sound looks like the audio it is
-                          type={track.type === "audio" ? "audio" : (asset?.type ?? "video")}
-                          pps={pps}
-                          selected={selected.has(clip.id)}
-                          missing={asset ? missing.has(asset.path) : true}
-                          wavePath={wave ? asset?.path : undefined}
-                          waveFrom={wave?.from}
-                          waveTo={wave?.to}
-                          muted={track.muted || (clip.muted ?? false)}
-                          onBodyPointerDown={onBodyPointerDown}
-                          onTrimPointerDown={onTrimPointerDown}
-                          onContextMenu={onContextMenu}
-                          onActivate={onActivate}
-                        />
-                        {asset?.text && (
-                          <TooLongBadge spec={asset.text} left={timeToX(clip.timelineStart, pps) + 2} />
-                        )}
-                        {/* a transition is a block of its own over its end of the clip, not part of the clip */}
-                        {coming && clip.transitionIn && (
-                          <TransitionBlock clip={clip} way="in" seconds={coming.seconds} pps={pps} />
-                        )}
-                        {going && clip.transitionOut && (
-                          <TransitionBlock clip={clip} way="out" seconds={going.seconds} pps={pps} />
-                        )}
-                      </Fragment>
-                    );
-                  })}
-                  {dropPreview?.trackId === track.id && ghost}
-                  {/* ghost for a rejected move, so the user sees where it would have landed */}
-                  {drag?.kind === "move" && !drag.valid && drag.trackId === track.id && (
-                    <div
-                      data-testid="drag-ghost"
-                      className="pointer-events-none absolute top-1 bottom-1 rounded-md border-2 border-dashed border-danger bg-danger/10"
-                      style={{ left: timeToX(drag.start, pps), width: timeToX(drag.duration, pps) }}
-                    />
-                  )}
+                  <TrackHeader track={t} />
                 </div>
               ))}
-              {newTrackRow && (
+              {(["video", "audio"] as const).map((type) => (
                 <div
-                  data-testid="new-track-row"
-                  className="relative border-b border-dashed border-accent bg-accent-soft"
-                  style={{ height: ROW_HEIGHT }}
+                  key={type}
+                  className="absolute inset-x-0 flex items-center border-b border-dashed px-2 text-[10px] text-text-muted"
+                  style={{ top: RULER_HEIGHT + layout.zones[type], height: ROW_HEIGHT }}
                 >
-                  <span className="pointer-events-none absolute top-1 right-2 text-[10px] text-text-muted">
-                    New {dropPreview.trackType} track
-                  </span>
-                  {ghost}
+                  {type === "video" ? "VIDEO / IMAGES" : "AUDIO"}
                 </div>
-              )}
+              ))}
             </div>
 
-            {project.tracks.every((t) => t.clips.length === 0) && (
-              <p
-                className="pointer-events-none absolute right-0 left-0 z-0 px-4 text-center text-xs text-text-muted"
-                style={{ top: RULER_HEIGHT + ROW_HEIGHT * project.tracks.length + 12 }}
-              >
-                Drag media from the library onto a track, or use the “Add to timeline” button on a file.
-              </p>
-            )}
-            {/* while a clip is moved: how far it has gone, next to the pointer */}
-            {drag?.kind === "move" && (
+            <div
+              className="relative shrink-0"
+              data-timeline-content
+              style={{ width, height: Math.max(height, viewport.height) }}
+            >
               <div
-                aria-hidden
-                data-testid="move-delta"
-                className="pointer-events-none fixed z-[70] rounded-md border bg-popover px-2 py-1 text-xs tabular-nums shadow-lg"
-                style={{ left: drag.pointer.x + 14, top: drag.pointer.y + 18 }}
+                className="sticky top-0 z-30 bg-surface-1"
+                style={{ height: RULER_HEIGHT }}
+                data-timeline-ruler
               >
-                {drag.delta < 0 ? "-" : "+"}
-                {formatTimecode(Math.abs(drag.delta), project.settings.fps)}
+                <Ruler pps={pps} from={from} to={to} />
+                <Playhead pps={pps} ruler />
               </div>
-            )}
-            {drag?.guide != null && (
+
               <div
-                aria-hidden
-                data-testid="snap-guide"
-                className="pointer-events-none absolute top-0 bottom-0 z-10 w-px bg-accent-hover"
-                style={{ left: timeToX(drag.guide, pps) }}
-              />
-            )}
-            <Playhead pps={pps} />
+                ref={lanesRef}
+                data-timeline-lanes
+                tabIndex={-1}
+                onPointerDown={marquee.begin}
+                className="absolute inset-x-0"
+                style={{ top: RULER_HEIGHT, height: layout.height }}
+              >
+                {marquee.box && (
+                  <div
+                    data-testid="timeline-selection-box"
+                    className="pointer-events-none absolute z-20 border border-accent bg-accent/15"
+                    style={marquee.box}
+                  />
+                )}
+                {layout.tracks.map((track) => (
+                  <div
+                    key={track.id}
+                    role="group"
+                    aria-label={`${track.name} lane`}
+                    data-track-id={track.id}
+                    data-locked={trackLocks[trackLockKey(project.id, track.id)] || undefined}
+                    className={cn(
+                      "absolute inset-x-0 border-b bg-surface-2/40",
+                      trackLocks[trackLockKey(project.id, track.id)] &&
+                        "[&_[data-clip-id]]:cursor-not-allowed",
+                      dropPreview?.trackId === track.id &&
+                        "bg-accent-soft outline outline-1 -outline-offset-1 outline-accent",
+                    )}
+                    data-drop-active={dropPreview?.trackId === track.id || undefined}
+                    style={{ height: layout.rowHeight(track.id), top: layout.top(track.id) }}
+                  >
+                    {visibleClips(track.clips, from, to).map((clip) => {
+                      const asset = assets.get(clip.assetId);
+                      const hasWave = asset && asset.type !== "image" && !missing.has(asset.path);
+                      const wave = hasWave
+                        ? waveWindow(
+                            timeToX(clip.timelineStart, pps),
+                            timeToX(clipDuration(clip), pps),
+                            viewport.left - BUFFER_PX,
+                            viewport.left + vw + BUFFER_PX,
+                          )
+                        : null;
+                      const coming = transitionOf(clip);
+                      const going = transitionOutOf(clip);
+                      return (
+                        <Fragment key={clip.id}>
+                          <ClipView
+                            clip={clip}
+                            name={asset ? assetName(asset) : "Missing media"}
+                            // a video's detached sound looks like the audio it is
+                            type={track.type === "audio" ? "audio" : (asset?.type ?? "video")}
+                            pps={pps}
+                            selected={selected.has(clip.id)}
+                            missing={asset ? missing.has(asset.path) : true}
+                            wavePath={wave ? asset?.path : undefined}
+                            waveFrom={wave?.from}
+                            waveTo={wave?.to}
+                            muted={track.muted || (clip.muted ?? false)}
+                            onBodyPointerDown={onBodyPointerDown}
+                            onTrimPointerDown={onTrimPointerDown}
+                            onContextMenu={onContextMenu}
+                            onActivate={onActivate}
+                          />
+                          {asset?.text && (
+                            <TooLongBadge spec={asset.text} left={timeToX(clip.timelineStart, pps) + 2} />
+                          )}
+                          {/* a transition is a block of its own over its end of the clip, not part of the clip */}
+                          {coming && clip.transitionIn && (
+                            <TransitionBlock clip={clip} way="in" seconds={coming.seconds} pps={pps} />
+                          )}
+                          {going && clip.transitionOut && (
+                            <TransitionBlock clip={clip} way="out" seconds={going.seconds} pps={pps} />
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                    {dropPreview?.trackId === track.id && ghost}
+                    {/* ghost for a rejected move, so the user sees where it would have landed */}
+                    {drag?.kind === "move" && !drag.valid && drag.trackId === track.id && (
+                      <div
+                        data-testid="drag-ghost"
+                        className="pointer-events-none absolute top-1 bottom-1 rounded-md border-2 border-dashed border-danger bg-danger/10"
+                        style={{ left: timeToX(drag.start, pps), width: timeToX(drag.duration, pps) }}
+                      />
+                    )}
+                  </div>
+                ))}
+                {(["video", "audio"] as const).map((type) => (
+                  <div
+                    key={type}
+                    data-layer-zone={type}
+                    aria-label={`Add ${type === "video" ? "video or image" : "audio"} layer`}
+                    className="absolute inset-x-0 flex items-center border-b border-dashed bg-surface-1/60 px-4 text-xs text-text-muted"
+                    style={{ top: layout.zones[type], height: ROW_HEIGHT }}
+                  >
+                    <span className="sticky left-32">
+                      {type === "video"
+                        ? "Drop video or image here to create a new visual layer"
+                        : "Drop audio here to create a new audio layer"}
+                    </span>
+                  </div>
+                ))}
+                {newTrackRow && (
+                  <div
+                    data-testid="new-track-row"
+                    className="pointer-events-none absolute inset-x-0 z-10 border-t-2 border-dashed border-accent bg-accent-soft"
+                    style={{ height: ROW_HEIGHT, top: insertionTop }}
+                  >
+                    <span className="pointer-events-none sticky top-1 left-32 text-[10px] text-text-muted">
+                      New {dropPreview.trackType} layer
+                    </span>
+                    {ghost}
+                  </div>
+                )}
+              </div>
+
+              {project.tracks.every((t) => t.clips.length === 0) && (
+                <p
+                  className="pointer-events-none absolute right-0 left-0 z-0 px-4 text-center text-xs text-text-muted"
+                  style={{ top: RULER_HEIGHT + layout.height + 12 }}
+                >
+                  Drag media from the library onto a track, or use the “Add to timeline” button on a file.
+                </p>
+              )}
+              {/* while a clip is moved: how far it has gone, next to the pointer */}
+              {drag?.kind === "move" && (
+                <div
+                  aria-hidden
+                  data-testid="move-delta"
+                  className="pointer-events-none fixed z-[70] rounded-md border bg-popover px-2 py-1 text-xs tabular-nums shadow-lg"
+                  style={{ left: drag.pointer.x + 14, top: drag.pointer.y + 18 }}
+                >
+                  {drag.copy && <span>Copy · </span>}
+                  {drag.delta < 0 ? "-" : "+"}
+                  {formatTimecode(Math.abs(drag.delta), project.settings.fps)}
+                </div>
+              )}
+              {drag?.guide != null && (
+                <div
+                  aria-hidden
+                  data-testid="snap-guide"
+                  className="pointer-events-none absolute top-0 bottom-0 z-10 w-px bg-accent-hover"
+                  style={{ left: timeToX(drag.guide, pps) }}
+                />
+              )}
+              <Playhead pps={pps} />
+            </div>
           </div>
         </div>
       </div>

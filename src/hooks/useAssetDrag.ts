@@ -28,7 +28,14 @@ export function beginAssetDrag(e: ReactPointerEvent, asset: MediaAsset) {
     const project = useProjectStore.getState().project;
     const plan = target ? planPlacement(project, newDropPlacement(target), asset) : null;
     useDragDropStore.getState().set({
-      dragging: { source: "library", label, x: last.x, y: last.y },
+      dragging: {
+        source: "library",
+        label,
+        x: last.x,
+        y: last.y,
+        mediaType: asset.type,
+        thumbnailPath: asset.thumbnailPath ?? (asset.type === "image" ? asset.path : undefined),
+      },
       preview: plan
         ? {
             trackId: plan.trackId,
@@ -37,6 +44,7 @@ export function beginAssetDrag(e: ReactPointerEvent, asset: MediaAsset) {
             duration: plan.duration,
             label,
             hint: plan.hint,
+            beforeTrackId: plan.beforeTrackId,
           }
         : null,
     });

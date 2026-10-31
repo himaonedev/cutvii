@@ -135,6 +135,8 @@ Shortcuts are ignored while typing in an input.
 
 ## Documentation
 
+- [`docs/freeze-highlight.md`](docs/freeze-highlight.md) — duotone halftone freeze frames with optional voice effects and impact accents.
+
 - [`docs/word-subtitles.md`](docs/word-subtitles.md) — custom base boxes, active-word highlights and reusable subtitle presets.
 - [`docs/clip-finishing.md`](docs/clip-finishing.md) — local subject effects, manual reframing, silence removal and separate clip projects.
 - [`docs/project-schema.md`](docs/project-schema.md) — project file format, validation, migrations, save/open safety.

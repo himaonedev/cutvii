@@ -1,6 +1,6 @@
 //! Export planning and FFmpeg filter-graph generation. Pure: no processes, no filesystem.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use super::transitions::{From, find as find_transition, leaving, remaining};
@@ -167,6 +167,12 @@ pub fn build_plan(
     }
 
     let assets: HashMap<&str, _> = project.assets.iter().map(|a| (a.id.as_str(), a)).collect();
+    let text_paths: HashSet<&str> = project
+        .assets
+        .iter()
+        .filter(|a| a.text.is_some())
+        .map(|a| a.path.as_str())
+        .collect();
     let mut tracks: Vec<_> = project.tracks.iter().collect();
     tracks.sort_by_key(|t| t.order);
 
@@ -232,7 +238,13 @@ pub fn build_plan(
                 .and_then(|t| Some((find_transition(&t.kind)?, t.duration.min(duration))));
             if let (Some((kind, seconds)), Some(before)) = (coming, clips.last_mut()) {
                 let touches = (before.start + before.duration - c.timeline_start).abs() < 1e-3;
-                if kind.hold && before.video && before.track == track.id && touches {
+                // Text must disappear at its boundary, rather than overlap the next caption.
+                if kind.hold
+                    && before.video
+                    && before.track == track.id
+                    && touches
+                    && !text_paths.contains(before.path.to_str().unwrap_or(""))
+                {
                     before.hold = seconds;
                 }
             }
@@ -974,6 +986,46 @@ mod tests {
             ("/m/i.png", true, false),
             ("/m/a.mp3", true, true),
         ])
+    }
+
+    #[test]
+    fn caption_transition_never_holds_previous_text() {
+        let mut incoming = clip("normal-caption", "normal", "captions", 2.0, 0.0, 2.0);
+        incoming["transitionIn"] = json!({"kind":"dissolve","duration":0.5});
+        let p = project(
+            json!([
+                {"id":"effect","path":"/m/effect.png","type":"image","text":{"content":"Halftone caption","fontSize":50,"color":"#FFFFFF","x":0.5,"y":0.8}},
+                {"id":"normal","path":"/m/normal.png","type":"image","text":{"content":"Normal caption","fontSize":50,"color":"#FFFFFF","x":0.5,"y":0.8}}
+            ]),
+            json!([track(
+                "captions",
+                "video",
+                0,
+                false,
+                false,
+                vec![
+                    clip("effect-caption", "effect", "captions", 0.0, 0.0, 2.0),
+                    incoming
+                ]
+            )]),
+        );
+        let plan = build_plan(
+            &p,
+            &opts(),
+            &facts(&[
+                ("/m/effect.png", true, false),
+                ("/m/normal.png", true, false),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(
+            plan.clips[0].hold, 0.0,
+            "the outgoing caption must not extend into the next subtitle"
+        );
+        assert!(
+            plan.clips[1].transition.is_some(),
+            "incoming text can still animate"
+        );
     }
 
     #[test]

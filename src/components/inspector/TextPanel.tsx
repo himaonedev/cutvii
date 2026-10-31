@@ -1,3 +1,5 @@
+import { TextFlickerPanel } from "./TextFlickerPanel";
+import { TextMarksPanel } from "./TextMarksPanel";
 import { ClipPosition } from "@/components/text/PositionControl";
 import { CaptionCheck } from "./CaptionCheck";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -259,6 +261,9 @@ export function TextPanel({
       </div>
 
       <CaptionCheck clipId={clipId} spec={spec} />
+
+      <TextFlickerPanel key={`${clipId}-flicker`} clipId={clipId} />
+      <TextMarksPanel key={`${clipId}-marks`} clipId={clipId} />
 
       <ClipPosition clipId={clipId} spec={spec} onProblem={setProblem} />
 

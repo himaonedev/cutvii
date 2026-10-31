@@ -1,3 +1,4 @@
+import { FacecamStylesPanel } from "@/components/inspector/FacecamStylesPanel";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowDownToLine, Sparkles } from "lucide-react";
 import { AiPanel } from "@/components/inspector/AiPanel";
@@ -14,6 +15,8 @@ import { TextPanel } from "@/components/inspector/TextPanel";
 import { TransformPanel } from "@/components/inspector/TransformPanel";
 import { TransitionPanel } from "@/components/inspector/TransitionPanel";
 import { MotionPresetsPanel } from "@/components/inspector/MotionPresetsPanel";
+import { ImageAnimationSpeedPanel } from "@/components/inspector/ImageAnimationSpeedPanel";
+import { FreezeHighlightPanel } from "@/components/inspector/FreezeHighlightPanel";
 import { UpscalePanel } from "@/components/inspector/UpscalePanel";
 import { Panel } from "@/components/Panel";
 import { assetName, fileName } from "@/lib/media";
@@ -780,7 +783,7 @@ function ClipTabs({ clip, asset, fps }: { clip: TimelineClip; asset: MediaAsset;
         role="tabpanel"
         aria-labelledby={`${uid}-tab-${active}`}
         tabIndex={0}
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3"
+        className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-3"
       >
         {active === "video" && asset.alpha && (
           <p className="text-xs text-text-muted">
@@ -802,7 +805,12 @@ function ClipTabs({ clip, asset, fps }: { clip: TimelineClip; asset: MediaAsset;
           </Section>
         )}
         {active === "motion" && (
-          <MotionPresetsPanel key={`${clip.id}-motion`} clip={clip} text={Boolean(asset.text)} />
+          <div>
+            <ImageAnimationSpeedPanel key={`${clip.id}-animation-speed`} clip={clip} />
+            <MotionPresetsPanel key={`${clip.id}-motion`} clip={clip} text={Boolean(asset.text)} />
+            <FacecamStylesPanel key={`${clip.id}-facecam`} clip={clip} />
+            <FreezeHighlightPanel key={`${clip.id}-freeze-highlight`} clip={clip} />
+          </div>
         )}
         {active === "video" && (
           <Section id="transform" title="Transform">
@@ -891,7 +899,7 @@ function ProjectSummary({ project }: { project: Project }) {
   const openCanvas = useUiStore((s) => s.setCanvasDialogOpen);
   const clips = project.tracks.reduce((n, t) => n + t.clips.length, 0);
   return (
-    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
+    <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-3">
       <div>
         <p className="truncate text-sm font-medium">{project.name}</p>
         <p className="text-xs text-text-muted">Nothing selected</p>
@@ -933,11 +941,12 @@ export function commonValue<T>(values: T[], format: (v: T) => string): string {
 
 function MultiSummary({ items }: { items: { clip: TimelineClip; asset: MediaAsset }[] }) {
   const clips = items.map((i) => i.clip);
+  const texts = items.filter((i) => i.asset.text);
   const withSound = items.filter((i) => i.asset.type !== "image").map((i) => i.clip);
   const withPicture = items.filter((i) => i.asset.type !== "audio").map((i) => i.clip);
   const round = (v: number) => Math.round(v * 1000) / 1000;
   return (
-    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
+    <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-3">
       <div>
         <p className="text-sm font-medium">{items.length} clips selected</p>
         <p className="text-xs text-text-muted">
@@ -985,8 +994,22 @@ function MultiSummary({ items }: { items: { clip: TimelineClip; asset: MediaAsse
           </Row>
         )}
       </dl>
+      {texts.length > 0 && (
+        <section aria-label="Selected text motion" className="space-y-3 border-t pt-3">
+          <h3 className="text-sm font-medium">Text motion · {texts.length} selected</h3>
+          <p className="text-xs text-text-muted">
+            Only selected text/subtitle clips will change. Selected video and audio stay unchanged.
+          </p>
+          <MotionPresetsPanel
+            key={texts.map((i) => i.clip.id).join("|")}
+            clip={texts[0].clip}
+            text
+            targetIds={texts.map((i) => i.clip.id)}
+          />
+        </section>
+      )}
       <p className="text-xs text-text-muted">
-        Select a single clip to edit its properties. Press Delete to remove the selection.
+        Select a single clip to edit other properties. Press Delete to remove the selection.
       </p>
     </div>
   );

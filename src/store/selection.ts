@@ -5,6 +5,7 @@ export type SelectionArea = "timeline" | "library";
 
 interface SelectionState {
   selectedClipIds: string[];
+  clipAnchor: string | null;
   /** Replace the selection, or toggle `id` in it when `additive`. */
   select: (id: string, additive?: boolean) => void;
   setSelection: (ids: string[]) => void;
@@ -29,16 +30,20 @@ interface SelectionState {
 
 export const useSelectionStore = create<SelectionState>((set) => ({
   selectedClipIds: [],
+  clipAnchor: null,
   select: (id, additive = false) =>
     set((s) => ({
+      clipAnchor: id,
+      area: "timeline",
       selectedClipIds: !additive
         ? [id]
         : s.selectedClipIds.includes(id)
           ? s.selectedClipIds.filter((x) => x !== id)
           : [...s.selectedClipIds, id],
     })),
-  setSelection: (ids) => set({ selectedClipIds: ids }),
-  clear: () => set({ selectedClipIds: [] }),
+  setSelection: (ids) =>
+    set({ selectedClipIds: [...new Set(ids)], clipAnchor: ids[0] ?? null }),
+  clear: () => set({ selectedClipIds: [], clipAnchor: null }),
 
   area: "timeline",
   setArea: (area) => set({ area }),

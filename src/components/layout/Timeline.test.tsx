@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import App from "@/App";
+import { useTrackLocksStore } from "@/store/trackLocks";
 import { useProjectStore } from "@/store/project";
 import { usePlaybackStore } from "@/store/playback";
 import { useSelectionStore } from "@/store/selection";
@@ -25,10 +26,11 @@ function setup() {
 }
 
 beforeEach(() => {
+  useTrackLocksStore.setState({ locks: {} });
   useProjectStore.setState({ project: makeProject(), past: [], future: [] });
   useSelectionStore.setState({ selectedClipIds: [] });
   usePlaybackStore.setState({ playhead: 0 });
-  useTimelineViewStore.setState({ pps: 50, snapping: true });
+  useTimelineViewStore.setState({ pps: 50, snapping: true, trackHeights: {}, waveformSizes: {} });
   useUiStore.setState({ notice: null });
 });
 
@@ -163,7 +165,7 @@ describe("Timeline", () => {
     usePlaybackStore.getState().setPlayhead(5);
     setup();
     fireEvent.contextMenu(screen.getByRole("button", { name: "vid.mp4 clip" }), { clientX: 20, clientY: 20 });
-    await userEvent.click(screen.getByRole("menuitem", { name: /Split at playhead/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Split at playhead/ }));
     expect(clips()).toHaveLength(2);
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
 
@@ -171,7 +173,7 @@ describe("Timeline", () => {
       clientX: 20,
       clientY: 20,
     });
-    await userEvent.click(screen.getByRole("menuitem", { name: /Delete/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Delete/ }));
     expect(clips()).toHaveLength(1);
   });
 
@@ -180,7 +182,7 @@ describe("Timeline", () => {
     const id = useSelectionStore.getState().selectedClipIds[0];
     setup();
     fireEvent.contextMenu(screen.getByRole("button", { name: "vid.mp4 clip" }), { clientX: 20, clientY: 20 });
-    await userEvent.click(screen.getByRole("menuitem", { name: "Motion presets…" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Motion presets…" }));
     expect(useUiStore.getState().inspectorTab.video).toBe("motion");
     expect(useUiStore.getState().sidePanel).toBe("inspector");
     expect(useSelectionStore.getState().selectedClipIds).toEqual([id]);
@@ -274,4 +276,263 @@ describe("track controls and semantics", () => {
     fireEvent.keyDown(slider, { key: "ArrowLeft" });
     expect(usePlaybackStore.getState().playhead).toBeCloseTo(1 - 1 / 30);
   });
+});
+
+describe("timeline viewport after zoom and scroll", () => {
+  it("clamps an old horizontal offset after zoom-out and keeps clips windowed at the visible start", () => {
+    addAssetToTimeline(IDS.vid);
+    useTimelineViewStore.setState({ pps: 50, scrollTarget: null });
+    setup();
+    const scroller = document.querySelector<HTMLElement>("[data-timeline-scroller]")!;
+    Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 912 });
+    scroller.scrollLeft = 150;
+    fireEvent.scroll(scroller);
+    expect(document.querySelector<HTMLElement>("[data-timeline-content]")!.style.width).toBe("1000px");
+    act(() => useTimelineViewStore.setState({ pps: 4 }));
+    expect(scroller.scrollLeft).toBe(0);
+    expect(document.querySelector<HTMLElement>("[data-timeline-content]")!.style.width).toBe("800px");
+    expect(document.querySelector<HTMLElement>("[data-timeline-surface]")!.style.width).toBe("912px");
+    expect(screen.getByRole("button", { name: "vid.mp4 clip" })).toBeInTheDocument();
+    expect(screen.getByTestId("ruler").className).toContain("overflow-hidden");
+  });
+  it("fits the project to the lanes only, excluding the pinned track headers", () => {
+    addAssetToTimeline(IDS.vid);
+    setup();
+    const scroller = document.querySelector<HTMLElement>("[data-timeline-scroller]")!;
+    Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 912 });
+    fireEvent.scroll(scroller);
+    fireEvent.click(screen.getByRole("button", { name: "Fit project" }));
+    expect(useTimelineViewStore.getState().pps).toBe(800 / 20);
+    expect(scroller.scrollLeft).toBe(0);
+  });
+});
+
+describe("new visual and audio layers", () => {
+  it("keeps a full blank drop row after each media group", () => {
+    setup();
+    expect(document.querySelector('[data-layer-zone="video"]')).toHaveStyle({ height: `${ROW_HEIGHT}px` });
+    expect(document.querySelector('[data-layer-zone="audio"]')).toHaveStyle({ height: `${ROW_HEIGHT}px` });
+  });
+  it("dragging a clip to a track edge creates a layer as a single undoable move", () => {
+    addAssetToTimeline(IDS.vid, { start: 0 });
+    const before = state().project,
+      id = clips()[0].id;
+    setup();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "vid.mp4 clip" }), {
+      button: 0,
+      clientX: 10,
+      clientY: ROW_HEIGHT / 2,
+    });
+    fireEvent.pointerMove(window, { clientX: 110, clientY: 2 });
+    expect(state().project).toBe(before);
+    fireEvent.pointerUp(window);
+    expect(state().project.tracks).toHaveLength(1); // vacated and previously empty tracks are cleaned
+    const moved = findClip(state().project, id)!;
+    expect(moved.track.type).toBe("video");
+    expect(moved.track.id).not.toBe(IDS.v1);
+    expect(moved.clip.timelineStart).toBe(2);
+    expectValid(state().project);
+    act(() => state().undo());
+    expect(state().project).toBe(before);
+  });
+  it("Escape cancels creation of a new layer without leaving an empty track", () => {
+    addAssetToTimeline(IDS.vid, { start: 0 });
+    const before = state().project;
+    setup();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "vid.mp4 clip" }), {
+      button: 0,
+      clientX: 10,
+      clientY: ROW_HEIGHT / 2,
+    });
+    fireEvent.pointerMove(window, { clientX: 110, clientY: 2 });
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.pointerUp(window);
+    expect(state().project).toBe(before);
+  });
+});
+
+describe("track deletion and automatic empty-track cleanup", () => {
+  it("deletes a track with its clips, clears stale selection, retains media and restores it with Undo", async () => {
+    addAssetToTimeline(IDS.vid);
+    const before = state().project;
+    setup();
+    await userEvent.click(screen.getByRole("button", { name: "Track options for Video 1" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Delete Video 1 track" }));
+    expect(state().project.tracks.some((t) => t.id === IDS.v1)).toBe(false);
+    expect(state().project.assets).toBe(before.assets);
+    expect(useSelectionStore.getState().selectedClipIds).toEqual([]);
+    expect(screen.queryByRole("button", { name: "vid.mp4 clip" })).not.toBeInTheDocument();
+    expectValid(state().project);
+    act(() => state().undo());
+    expect(state().project).toBe(before);
+    expect(screen.getByRole("button", { name: "vid.mp4 clip" })).toBeInTheDocument();
+  });
+  it("allows removing every empty track while keeping both media drop zones available", async () => {
+    setup();
+    const names = state().project.tracks.map((t) => t.name);
+    for (const name of names) {
+      await userEvent.click(screen.getByRole("button", { name: `Track options for ${name}` }));
+      await userEvent.click(await screen.findByRole("menuitem", { name: `Delete ${name} track` }));
+    }
+    expect(state().project.tracks).toHaveLength(0);
+    expect(document.querySelector('[data-layer-zone="video"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-layer-zone="audio"]')).toBeInTheDocument();
+    expectValid(state().project);
+  });
+  it("cleans empty layers after moving into another populated track in the same Undo step", () => {
+    addAssetToTimeline(IDS.vid, { trackId: IDS.v1, start: 0 });
+    addAssetToTimeline(IDS.vid2, { trackId: IDS.v2, start: 12 });
+    const before = state().project,
+      id = findClip(before, before.tracks[0].clips[0].id)!.clip.id;
+    setup();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "vid.mp4 clip" }), {
+      button: 0,
+      clientX: 10,
+      clientY: ROW_HEIGHT / 2,
+    });
+    fireEvent.pointerMove(window, { clientX: 60, clientY: ROW_HEIGHT * 1.5 });
+    fireEvent.pointerUp(window);
+    expect(state().project.tracks).toHaveLength(1);
+    expect(findClip(state().project, id)?.track.id).toBe(IDS.v2);
+    expect(state().project.tracks[0].clips).toHaveLength(2);
+    expectValid(state().project);
+    act(() => state().undo());
+    expect(state().project).toBe(before);
+  });
+});
+
+describe("compact track menus", () => {
+  it("adjusts track height and waveform display through submenus without editing the project", async () => {
+    addAssetToTimeline(IDS.vid);
+    const before = state().project;
+    setup();
+    expect(screen.queryByRole("button", { name: "Delete Video 1 track" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Track options for Video 1" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Track height" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: "Large" }));
+    expect(screen.getByRole("group", { name: "Video 1 lane" })).toHaveStyle({ height: "96px" });
+    expect(screen.getByRole("group", { name: "Video 2 lane" })).toHaveStyle({ top: "96px" });
+    expect(state().project).toBe(before);
+    await userEvent.click(screen.getByRole("button", { name: "Track options for Video 1" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Audio waveform size" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: "Hidden" }));
+    expect(useTimelineViewStore.getState().waveformSizes[IDS.v1]).toBe(0);
+    expect(screen.queryByTestId("waveform-placeholder")).not.toBeInTheDocument();
+    expect(state().project).toBe(before);
+  });
+});
+
+it("shows icon-only track controls and prevents dragging or splitting a locked clip", async () => {
+  addAssetToTimeline(IDS.vid);
+  usePlaybackStore.setState({ playhead: 4 });
+  const before = state().project;
+  setup();
+  expect(screen.queryByText("Video 1", { exact: true })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Lock Video 1" }));
+  expect(screen.getByRole("button", { name: "Unlock Video 1" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("group", { name: "Video 1 lane" })).toHaveAttribute("data-locked", "true");
+  fireEvent.pointerDown(screen.getByRole("button", { name: "vid.mp4 clip" }), {
+    button: 0,
+    clientX: 10,
+    clientY: ROW_HEIGHT / 2,
+  });
+  fireEvent.pointerMove(window, { clientX: 110, clientY: ROW_HEIGHT / 2 });
+  fireEvent.pointerUp(window);
+  expect(state().project).toBe(before);
+  await userEvent.click(screen.getByRole("button", { name: "Split at playhead (S)" }));
+  expect(state().project).toBe(before);
+  await userEvent.click(screen.getByRole("button", { name: "Unlock Video 1" }));
+  await userEvent.click(screen.getByRole("button", { name: "Split at playhead (S)" }));
+  expect(clips()).toHaveLength(2);
+});
+
+describe("Alt-drag duplication", () => {
+  it("copies into free space and selects the copy as one undoable edit", () => {
+    addAssetToTimeline(IDS.vid, { start: 0 });
+    const before = state().project,
+      original = clips()[0];
+    setup();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "vid.mp4 clip" }), {
+      button: 0,
+      clientX: 10,
+      clientY: ROW_HEIGHT / 2,
+      altKey: true,
+    });
+    fireEvent.pointerMove(window, { clientX: 512, clientY: ROW_HEIGHT / 2, altKey: true });
+    expect(screen.getByTestId("move-delta")).toHaveTextContent("Copy");
+    expect(state().project).toBe(before);
+    fireEvent.pointerUp(window, { altKey: true });
+    expect(clips()).toHaveLength(2);
+    expect(findClip(state().project, original.id)?.clip).toEqual(original);
+    const copy = clips().find((c) => c.id !== original.id)!;
+    expect(copy.timelineStart).toBe(10);
+    expect(useSelectionStore.getState().selectedClipIds).toEqual([copy.id]);
+    expectValid(state().project);
+    act(() => state().undo());
+    expect(state().project).toBe(before);
+  });
+  it("copies to a new layer without removing the original track", () => {
+    addAssetToTimeline(IDS.vid, { start: 0 });
+    const original = clips()[0];
+    setup();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "vid.mp4 clip" }), {
+      button: 0,
+      clientX: 10,
+      clientY: ROW_HEIGHT / 2,
+      altKey: true,
+    });
+    fireEvent.pointerMove(window, { clientX: 10, clientY: 2, altKey: true });
+    fireEvent.pointerUp(window, { altKey: true });
+    expect(clips()).toHaveLength(2);
+    expect(findClip(state().project, original.id)?.track.id).toBe(IDS.v1);
+    expect(clips().find((c) => c.id !== original.id)?.trackId).not.toBe(IDS.v1);
+    expectValid(state().project);
+  });
+  it("releasing Alt switches back to moving, while Escape cancels copying", () => {
+    addAssetToTimeline(IDS.vid, { start: 0 });
+    const before = state().project,
+      original = clips()[0];
+    setup();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "vid.mp4 clip" }), {
+      button: 0,
+      clientX: 10,
+      clientY: ROW_HEIGHT / 2,
+      altKey: true,
+    });
+    fireEvent.pointerMove(window, { clientX: 610, clientY: ROW_HEIGHT / 2, altKey: true });
+    fireEvent.keyUp(window, { key: "Alt" });
+    expect(screen.getByTestId("move-delta")).not.toHaveTextContent("Copy");
+    fireEvent.pointerUp(window);
+    expect(clips()).toHaveLength(1);
+    expect(findClip(state().project, original.id)?.clip.timelineStart).toBe(12);
+    act(() => state().undo());
+    expect(state().project).toBe(before);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "vid.mp4 clip" }), {
+      button: 0,
+      clientX: 10,
+      clientY: ROW_HEIGHT / 2,
+      altKey: true,
+    });
+    fireEvent.pointerMove(window, { clientX: 610, clientY: ROW_HEIGHT / 2, altKey: true });
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.pointerUp(window);
+    expect(state().project).toBe(before);
+  });
+});
+
+it("right-click Delete removes the last clip and its empty track together, with one Undo", async () => {
+  addAssetToTimeline(IDS.vid, { start: 0 });
+  const before = state().project;
+  setup();
+  fireEvent.contextMenu(screen.getByRole("button", { name: "vid.mp4 clip" }), { clientX: 160, clientY: 300 });
+  await userEvent.click(await screen.findByRole("menuitem", { name: /^Delete/ }));
+  expect(clips()).toHaveLength(0);
+  expect(state().project.tracks).toHaveLength(0);
+  expect(screen.queryByRole("group", { name: "Video 1 lane" })).not.toBeInTheDocument();
+  expect(document.querySelector('[data-layer-zone="video"]')).toBeInTheDocument();
+  expect(document.querySelector('[data-layer-zone="audio"]')).toBeInTheDocument();
+  expectValid(state().project);
+  act(() => state().undo());
+  expect(state().project).toBe(before);
+  expect(screen.getByRole("button", { name: "vid.mp4 clip" })).toBeInTheDocument();
 });

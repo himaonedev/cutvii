@@ -12,7 +12,7 @@ import { MAX_STYLE_NAME, useTextStyleStore, type CustomStyle } from "@/store/tex
 import { DEFAULT_WORD_HIGHLIGHT } from "@/timeline/wordCaptions";
 
 const fieldClass =
-  "h-9 w-full rounded-md border bg-surface-2 px-2 text-sm pointer-coarse:h-11 focus-visible:outline-accent";
+  "h-9 w-full min-w-0 max-w-full rounded-md border bg-surface-2 px-2 text-sm pointer-coarse:h-11 focus-visible:outline-accent";
 const chip = (on: boolean) =>
   cn(
     "h-9 rounded-md border px-2 text-xs pointer-coarse:h-11",
@@ -80,7 +80,7 @@ function Percent({
         max={max}
         step={1}
         value={pct}
-        className="w-full accent-[var(--accent)] pointer-coarse:h-11"
+        className="w-full min-w-0 max-w-full accent-[var(--accent)] pointer-coarse:h-11"
         onChange={(e) => onChange(Number(e.target.value) / 100)}
       />
     </label>
@@ -100,7 +100,7 @@ function Part({
   children: React.ReactNode;
 }) {
   return (
-    <fieldset className="space-y-2 rounded-md border p-2">
+    <fieldset className="min-w-0 space-y-2 rounded-md border p-2">
       <label className="flex min-h-6 cursor-pointer items-center gap-2 text-xs text-text pointer-coarse:min-h-11">
         <input
           type="checkbox"
@@ -145,7 +145,7 @@ function BoxAngle({
         step={1}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-[var(--accent)]"
+        className="w-full min-w-0 max-w-full accent-[var(--accent)]"
       />
     </label>
   );
@@ -162,6 +162,8 @@ export function StyleEditor({
   onChange,
   position,
   size,
+  showFade = true,
+  showWordGrouping = true,
 }: {
   value: CustomStyle;
   /** The name written in the sample. */
@@ -171,6 +173,8 @@ export function StyleEditor({
   position?: PositionProps;
   /** The font size, when the editor is used for something that has one (subtitles). */
   size?: SizeProps;
+  showFade?: boolean;
+  showWordGrouping?: boolean;
 }) {
   const fonts = useFontStore((s) => s.fonts);
   useEffect(() => useFontStore.getState().ensure(), []);
@@ -183,7 +187,7 @@ export function StyleEditor({
   };
 
   return (
-    <div role="group" aria-label="Style editor" className="space-y-3 text-xs">
+    <div role="group" aria-label="Style editor" className="w-full min-w-0 max-w-full space-y-3 text-xs">
       <StylePreview
         style={style}
         label={style.highlight?.word ? "Ini contoh subtitle" : label}
@@ -239,7 +243,7 @@ export function StyleEditor({
             max={size.max * 100}
             step={0.5}
             value={Math.round(size.value * 1000) / 10}
-            className="w-full accent-[var(--accent)] pointer-coarse:h-11"
+            className="w-full min-w-0 max-w-full accent-[var(--accent)] pointer-coarse:h-11"
             onChange={(e) => size.onChange(Number(e.target.value) / 100)}
           />
         </label>
@@ -384,7 +388,7 @@ export function StyleEditor({
 
       <Part
         title="Highlight active word"
-        on={style.highlight?.word !== undefined}
+        on={style.highlight?.word !== undefined && style.highlight.word.opacity !== 0}
         onToggle={(on) =>
           set({
             highlight: on
@@ -397,7 +401,7 @@ export function StyleEditor({
           })
         }
       >
-        {style.highlight?.word && (
+        {style.highlight?.word && style.highlight.word.opacity !== 0 && (
           <>
             <Colour
               label="Active word text colour"
@@ -436,32 +440,34 @@ export function StyleEditor({
                 }
               />
             ))}
-            <label className="block space-y-1">
-              <span className="text-text-muted">Words per caption</span>
-              <input
-                type="number"
-                min={1}
-                max={8}
-                step={1}
-                className={fieldClass}
-                value={style.highlight.word.maxWords}
-                onChange={(e) =>
-                  set({
-                    highlight: {
-                      ...style.highlight!,
-                      word: {
-                        ...style.highlight!.word!,
-                        maxWords: Math.max(1, Math.min(8, Math.round(Number(e.target.value) || 1))),
+            {showWordGrouping && (
+              <label className="block space-y-1">
+                <span className="text-text-muted">Words per caption</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={8}
+                  step={1}
+                  className={fieldClass}
+                  value={style.highlight.word.maxWords}
+                  onChange={(e) =>
+                    set({
+                      highlight: {
+                        ...style.highlight!,
+                        word: {
+                          ...style.highlight!.word!,
+                          maxWords: Math.max(1, Math.min(8, Math.round(Number(e.target.value) || 1))),
+                        },
                       },
-                    },
-                  })
-                }
-              />
-            </label>
+                    })
+                  }
+                />
+              </label>
+            )}
             <p className="text-text-muted">
               Subtitle highlights use estimated word times from each segment. Each state stays editable on the
-              timeline. Choose 1 word per caption to show one word at a time. Fade is ignored between word
-              states.
+              timeline. {showWordGrouping && "Choose 1 word per caption to show one word at a time. "}Fade is
+              ignored between word states.
             </p>
           </>
         )}
@@ -469,54 +475,110 @@ export function StyleEditor({
 
       <Part
         title="Highlight a line"
-        on={style.highlight !== undefined && !style.highlight.word}
+        on={style.highlight !== undefined && (!style.highlight.word || style.highlight.word.opacity === 0)}
         onToggle={(on) => set({ highlight: on ? { color: "#FFD233", lines: "last" } : undefined })}
       >
-        {style.highlight && !style.highlight.word && (
+        {style.highlight && (!style.highlight.word || style.highlight.word.opacity === 0) && (
           <>
+            <label className="block">
+              <span className="mb-1 block text-text-muted">Highlight mode</span>
+              <select
+                aria-label="Highlight mode"
+                className={fieldClass}
+                value={style.highlight.word ? "word" : "line"}
+                onChange={(e) =>
+                  set({
+                    highlight:
+                      e.target.value === "word"
+                        ? { ...style.highlight!, word: { ...DEFAULT_WORD_HIGHLIGHT, opacity: 0 } }
+                        : { color: style.highlight!.color, lines: style.highlight!.lines },
+                  })
+                }
+              >
+                <option value="line">Per line</option>
+                <option value="word">Active word (text only)</option>
+              </select>
+            </label>
             <Colour
               label="Highlight colour"
               value={style.highlight.color}
               onChange={(color) => set({ highlight: { ...style.highlight!, color } })}
             />
-            <label className="block">
-              <span className="mb-1 block text-text-muted">Which lines</span>
-              <select
-                className={fieldClass}
-                value={style.highlight.lines}
-                onChange={(e) =>
-                  set({
-                    highlight: { ...style.highlight!, lines: e.target.value as "last" | "first" | "even" },
-                  })
-                }
-              >
-                <option value="last">The last line</option>
-                <option value="first">The first line</option>
-                <option value="even">Every second line</option>
-              </select>
-            </label>
+            {!style.highlight.word && (
+              <label className="block">
+                <span className="mb-1 block text-text-muted">Which lines</span>
+                <select
+                  className={fieldClass}
+                  value={style.highlight.lines}
+                  onChange={(e) =>
+                    set({
+                      highlight: { ...style.highlight!, lines: e.target.value as "last" | "first" | "even" },
+                    })
+                  }
+                >
+                  <option value="last">The last line</option>
+                  <option value="first">The first line</option>
+                  <option value="even">Every second line</option>
+                </select>
+              </label>
+            )}
+            {style.highlight.word && (
+              <>
+                {showWordGrouping && (
+                  <label className="block space-y-1">
+                    <span className="text-text-muted">Words per caption</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={8}
+                      step={1}
+                      className={fieldClass}
+                      value={style.highlight.word.maxWords}
+                      onChange={(e) =>
+                        set({
+                          highlight: {
+                            ...style.highlight!,
+                            word: {
+                              ...style.highlight!.word!,
+                              maxWords: Math.max(1, Math.min(8, Math.round(Number(e.target.value) || 1))),
+                            },
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                )}
+                <p className="text-text-muted">
+                  Only the spoken word changes colour, without an extra box. Uses estimated word timing when
+                  subtitles are generated.{" "}
+                  {showWordGrouping && "Choose 1 word per caption to show words individually."}
+                </p>
+              </>
+            )}
           </>
         )}
       </Part>
 
       {position && <PositionControl {...position} />}
 
-      <label className="block">
-        <span className="mb-1 block text-text-muted">Fade in and out (s)</span>
-        <input
-          type="number"
-          inputMode="decimal"
-          min={0}
-          max={5}
-          step={0.1}
-          className={fieldClass}
-          value={value.fade ?? 0}
-          onChange={(e) => {
-            const seconds = Math.min(5, Math.max(0, Number(e.target.value) || 0));
-            onChange(seconds > 0 ? { ...value, fade: seconds } : { style: value.style });
-          }}
-        />
-      </label>
+      {showFade && (
+        <label className="block">
+          <span className="mb-1 block text-text-muted">Fade in and out (s)</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            min={0}
+            max={5}
+            step={0.1}
+            className={fieldClass}
+            value={value.fade ?? 0}
+            onChange={(e) => {
+              const seconds = Math.min(5, Math.max(0, Number(e.target.value) || 0));
+              onChange(seconds > 0 ? { ...value, fade: seconds } : { style: value.style });
+            }}
+          />
+        </label>
+      )}
     </div>
   );
 }

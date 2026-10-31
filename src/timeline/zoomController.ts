@@ -3,18 +3,15 @@ import { usePlaybackStore } from "@/store/playback";
 import { useProjectStore } from "@/store/project";
 import { useTimelineViewStore } from "@/store/timelineView";
 import { projectDuration } from "./clips";
-import { timelineScroller } from "./dropTargeting";
+import { timelineScroller, timelineViewport } from "./dropTargeting";
 import { fitPps, playheadAnchor, wheelZoomFactor, zoomAround, ZOOM_STEP } from "./zoom";
 
 const FALLBACK_WIDTH = 1000;
 
 function viewport() {
   const el = timelineScroller();
-  return {
-    scrollLeft: el?.scrollLeft ?? 0,
-    width: el?.clientWidth || FALLBACK_WIDTH,
-    left: el?.getBoundingClientRect().left ?? 0,
-  };
+  const bounds = el ? timelineViewport(el) : null;
+  return { scrollLeft: el?.scrollLeft ?? 0, width: bounds?.width || FALLBACK_WIDTH, left: bounds?.left ?? 0 };
 }
 
 function apply(nextPps: number, anchorX: number) {

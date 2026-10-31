@@ -49,7 +49,10 @@ interface Props {
   onBodyPointerDown: (e: React.PointerEvent, clip: TimelineClip) => void;
   onTrimPointerDown: (e: React.PointerEvent, clip: TimelineClip, edge: "start" | "end") => void;
   onContextMenu: (e: React.MouseEvent, clip: TimelineClip) => void;
-  onActivate: (clip: TimelineClip, additive: boolean) => void;
+  onActivate: (
+    clip: TimelineClip,
+    modifiers: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean },
+  ) => void;
 }
 
 /** A fade set by dragging or with the arrow keys is kept to 0.01 s, like in the Sound tab. */
@@ -308,9 +311,10 @@ export const ClipView = memo(function ClipView({
       onPointerLeave={() => setNearEnd(null)}
       onContextMenu={(e) => onContextMenu(e, clip)}
       onKeyDown={(e) => {
-        if (e.key === "Enter") {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
           useUiStore.getState().setSelectedTransition(null);
-          onActivate(clip, e.shiftKey);
+          onActivate(clip, e);
         }
       }}
       className={cn(

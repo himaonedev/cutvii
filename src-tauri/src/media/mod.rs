@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod captions;
 pub mod clean;
+pub mod freeze_highlight;
 pub mod clipper;
 pub mod clipper_job;
 pub mod color;

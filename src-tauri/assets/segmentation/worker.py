@@ -24,6 +24,7 @@ def run(job):
     from mediapipe.tasks.python import vision
     from mediapipe.tasks.python.core.base_options import BaseOptions
 
+    cv2.setNumThreads(2)
     width, height = int(job["width"]), int(job["height"])
     fps, seconds = float(job["fps"]), float(job["seconds"])
     if width < 2 or height < 2 or width > 4096 or height > 4096 or not 0 < fps <= 60 or not 0 < seconds <= 600:
@@ -42,16 +43,16 @@ def run(job):
     frames = 0
     try:
         with tempfile.TemporaryFile() as errors:
-            decode = subprocess.Popen([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin",
+            decode = subprocess.Popen([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-threads", "2", "-filter_threads", "1",
                 "-ss", str(job["start"]), "-t", str(seconds), "-i", source,
                 "-vf", f"fps={fps},scale={width}:{height}", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"],
                 stdout=subprocess.PIPE, stderr=errors, creationflags=FLAGS)
             remove = job["mode"] == "remove"
             codec = ["-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-auto-alt-ref", "0",
-                     "-row-mt", "1", "-deadline", "realtime", "-cpu-used", "6", "-crf", "24", "-b:v", "0",
+                     "-row-mt", "1", "-threads", "2", "-deadline", "realtime", "-cpu-used", "6", "-crf", "24", "-b:v", "0",
                      "-c:a", "libopus", "-b:a", "128k"] if remove else [
-                     "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac"]
-            encode = subprocess.Popen([ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+                     "-c:v", "libx264", "-preset", "fast", "-threads", "2", "-x264-params", "rc-lookahead=8:sync-lookahead=0", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac"]
+            encode = subprocess.Popen([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-filter_threads", "1",
                 "-f", "rawvideo", "-pix_fmt", "rgba" if remove else "rgb24", "-s", f"{width}x{height}",
                 "-r", str(fps), "-i", "pipe:0", "-ss", str(job["start"]), "-t", str(seconds), "-i", source,
                 "-map", "0:v:0", "-map", "1:a:0?", *codec, str(temporary)],

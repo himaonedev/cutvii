@@ -22,7 +22,8 @@ function previewOsDrag(x: number, y: number) {
     preview: target
       ? {
           trackId: lane?.id ?? null,
-          trackType: lane?.type ?? "video",
+          trackType: lane?.type ?? (target.kind === "new-track" ? target.trackType : undefined) ?? "video",
+          beforeTrackId: target.kind === "new-track" ? target.beforeTrackId : undefined,
           start: target.time,
           duration: DEFAULT_IMAGE_DURATION,
           label: "Drop to add",

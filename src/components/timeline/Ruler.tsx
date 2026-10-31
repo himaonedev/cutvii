@@ -61,7 +61,7 @@ export const Ruler = memo(function Ruler({ pps, from, to }: { pps: number; from:
         e.stopPropagation(); // the global shortcut would otherwise move it a second time
       }}
       onPointerDown={onPointerDown}
-      className="absolute inset-x-0 top-0 cursor-col-resize touch-none border-b bg-surface-1 select-none"
+      className="absolute inset-x-0 top-0 cursor-col-resize touch-none overflow-hidden border-b bg-surface-1 select-none"
       style={{ height: RULER_HEIGHT }}
     >
       {ticks.map((t) => (

@@ -3,7 +3,7 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* CutVii design tokens — black & orange. Single source of truth; Tailwind and shadcn read from here. */
+/* CutVii default design tokens. Saved appearance overrides the palette via CSS variables. */
 :root {
   color-scheme: dark;
   --bg: #0b0b0c;
@@ -162,4 +162,11 @@
 }
 [data-drop-way="out"]::after {
   right: 0;
+}
+
+/* Theme swaps repaint once instead of animating colours across the whole editor. */
+:root[data-theme-switching] *,
+:root[data-theme-switching] *::before,
+:root[data-theme-switching] *::after {
+  transition-duration: 0s !important;
 }

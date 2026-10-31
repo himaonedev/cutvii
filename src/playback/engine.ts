@@ -55,6 +55,8 @@ export function layersAt(project: Project, t: number, horizon = PRELOAD_SECONDS)
       const held =
         !active &&
         track.type === "video" &&
+        // Captions end on their own boundary; holding them under the next text creates a ghost.
+        !asset.text &&
         asset.type !== "audio" &&
         t >= end - EPS &&
         t < end + holdAfter(clip, track.clips) - EPS;

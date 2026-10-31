@@ -4,7 +4,8 @@ import { DEFAULT_IMAGE_DURATION, firstFreeStart } from "./edit";
 
 /** Where a drop landed on the timeline. */
 export type DropTarget =
-  { kind: "track"; trackId: string; time: number } | { kind: "new-track"; time: number };
+  | { kind: "track"; trackId: string; time: number }
+  | { kind: "new-track"; time: number; trackType?: "video" | "audio"; beforeTrackId?: string | null };
 
 /** State shared by the files of one drop, so they line up one after another. */
 export interface DropPlacement {
@@ -25,6 +26,7 @@ export interface PlacementPlan {
   duration: number;
   /** The pointer was on a lane that cannot hold this media, so another lane is used. */
   adapted: boolean;
+  beforeTrackId?: string | null;
   hint?: string;
 }
 
@@ -50,7 +52,9 @@ export function planPlacement(
   const wanted = asset.type === "audio" ? "audio" : "video";
   const { target } = placement;
   const dropped = target.kind === "track" ? project.tracks.find((t) => t.id === target.trackId) : undefined;
-  const wrongLane = Boolean(dropped && dropped.type !== wanted);
+  const wrongLane =
+    Boolean(dropped && dropped.type !== wanted) ||
+    (target.kind === "new-track" && Boolean(target.trackType && target.trackType !== wanted));
 
   const existing =
     (placement.created[wanted]
@@ -69,6 +73,10 @@ export function planPlacement(
     start: firstFreeStart(existing?.clips ?? [], desired, duration),
     duration,
     adapted: wrongLane,
+    beforeTrackId:
+      target.kind === "new-track" && (!target.trackType || target.trackType === wanted)
+        ? target.beforeTrackId
+        : null,
     hint: wrongLane ? HINT[wanted] : undefined,
   };
 }

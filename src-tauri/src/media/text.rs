@@ -539,6 +539,90 @@ pub fn line_count(spec: &TextSpec, width: u32, height: u32) -> AppResult<u32> {
         .count() as u32)
 }
 
+/// Typographic line spans used by animated highlighter/strikethrough overlays.
+#[derive(Clone, Debug)]
+pub struct MarkerLine {
+    pub x0: f32,
+    pub x1: f32,
+    pub cy: f32,
+}
+pub fn marker_lines(
+    spec: &TextSpec,
+    width: u32,
+    height: u32,
+    first: usize,
+    last: usize,
+) -> AppResult<Vec<MarkerLine>> {
+    spec.validate()?;
+    check_canvas(width, height)?;
+    let count = spec.content.split_whitespace().count();
+    if first > last || last >= count {
+        return Err(AppError::InvalidInput("Choose a valid word range".into()));
+    }
+    let mut guard = fonts().lock().unwrap_or_else(|e| e.into_inner());
+    let family = spec
+        .font
+        .as_deref()
+        .filter(|f| family_names(guard.system.db()).contains(*f))
+        .unwrap_or(FONT_FAMILY)
+        .to_string();
+    let buffer = shape(&mut guard.system, spec, width, &family);
+    let block_height = buffer
+        .layout_runs()
+        .map(|r| r.line_top + r.line_height)
+        .fold(0.0_f32, f32::max);
+    let box_width = (width as f64 * spec.wrap.unwrap_or(WRAP_WIDTH)) as f32;
+    let left = (spec.x * width as f64 - box_width as f64 / 2.0).round() as f32;
+    let top = (spec.y * height as f64 - block_height as f64 / 2.0).round() as f32;
+    let mut lines = Vec::new();
+    for run in buffer.layout_runs().filter(|r| !r.glyphs.is_empty()) {
+        let offset: usize = spec
+            .content
+            .lines()
+            .take(run.line_i)
+            .map(|s| s.split_whitespace().count())
+            .sum();
+        let mut cursor = 0;
+        let ranges: Vec<_> = run
+            .text
+            .split_whitespace()
+            .map(|word| {
+                let start = cursor + run.text[cursor..].find(word).unwrap();
+                cursor = start + word.len();
+                (start, cursor)
+            })
+            .collect();
+        if last < offset || first >= offset + ranges.len() {
+            continue;
+        }
+        let a = ranges[first.saturating_sub(offset)].0;
+        let b = ranges[(last - offset).min(ranges.len() - 1)].1;
+        let glyphs: Vec<_> = run
+            .glyphs
+            .iter()
+            .filter(|g| g.start < b && g.end > a)
+            .collect();
+        if glyphs.is_empty() {
+            continue;
+        }
+        let x0 = left + glyphs.iter().map(|g| g.x).fold(f32::MAX, f32::min);
+        let x1 = left + glyphs.iter().map(|g| g.x + g.w).fold(f32::MIN, f32::max);
+        if x1 > x0 {
+            lines.push(MarkerLine {
+                x0,
+                x1,
+                cy: top + run.line_top + run.line_height * 0.5,
+            });
+        }
+    }
+    if lines.is_empty() {
+        return Err(AppError::InvalidInput(
+            "No visible words in this range".into(),
+        ));
+    }
+    Ok(lines)
+}
+
 /// Draw `spec` on a transparent canvas. Returns straight-alpha RGBA, `width * height * 4` bytes.
 /// This is the only text rasterizer: the preview shows its picture and the export overlays the same one.
 pub fn render(spec: &TextSpec, width: u32, height: u32) -> AppResult<Vec<u8>> {

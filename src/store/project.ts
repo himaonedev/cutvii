@@ -1,3 +1,4 @@
+import { protectLockedTracks } from "@/timeline/trackLock";
 import { create } from "zustand";
 import { createProject } from "@/project/factory";
 import type { MediaAsset, Project, ProjectSettings } from "@/project/model";
@@ -65,7 +66,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   execute: (command) => {
     const { project, past } = get();
-    const result = command.apply(project);
+    const result = protectLockedTracks(project, command.apply(project));
     if (result.ok && result.project !== project) {
       set({
         project: { ...result.project, modifiedAt: new Date().toISOString() },

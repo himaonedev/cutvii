@@ -126,10 +126,10 @@ describe("OS drop onto the timeline", () => {
   it("empty space below the lanes creates a new track, undone together with the clip", async () => {
     results = { 1: media("a.mp4") };
     render(<App />);
-    await dropAt(xAt(0), lane(2) + 20, [{ id: 1, name: "a.mp4" }]);
+    await dropAt(xAt(0), lane(1) + 20, [{ id: 1, name: "a.mp4" }]);
 
     await waitFor(() => expect(state().project.tracks).toHaveLength(3));
-    const added = state().project.tracks[2];
+    const added = state().project.tracks[1];
     expect(added).toMatchObject({ type: "video", name: "Video 2" });
     expect(added.clips).toHaveLength(1);
     expect(screen.getByRole("group", { name: "Video 2 lane" })).toBeInTheDocument();

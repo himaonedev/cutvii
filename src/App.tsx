@@ -1,3 +1,4 @@
+import { EditorWorkspace } from "@/components/layout/EditorWorkspace";
 import { useEffect } from "react";
 import { AboutDialog } from "@/components/AboutDialog";
 import { SettingsDialog } from "@/components/SettingsDialog";
@@ -93,7 +94,7 @@ export default function App() {
           <div className="flex h-full flex-col bg-bg">
             <TopBar />
             <CanvasNotice />
-            <main className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[18rem_minmax(0,1fr)_20rem] lg:grid-rows-[minmax(0,1fr)_16rem]">
+            <EditorWorkspace>
               <Preview />
               {/* narrow: tabs + the active panel; wide: wrapper disappears and panels become grid items */}
               <div className="flex min-h-0 flex-col lg:contents">
@@ -103,7 +104,7 @@ export default function App() {
                 <Inspector />
               </div>
               <Timeline />
-            </main>
+            </EditorWorkspace>
           </div>
         </>
       )}

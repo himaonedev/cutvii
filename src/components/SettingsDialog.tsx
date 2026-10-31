@@ -1,10 +1,11 @@
+import { ThemeSettings } from "./ThemeSettings";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useUiStore } from "@/store/ui";
 import { manualCheck, readUpdatePrefs, writeUpdatePrefs } from "@/updates/updates";
 
-/** Settings. For now one setting: whether CutVii looks for a newer version by itself. */
+/** Shared appearance and update preferences, also reachable from Home. */
 export function SettingsDialog() {
   const open = useUiStore((s) => s.settingsOpen);
   return open ? <SettingsBody /> : null;
@@ -36,11 +37,12 @@ function SettingsBody() {
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
-        className="flex w-full flex-col gap-3 rounded-t-lg border bg-popover px-5 py-5 shadow-xl sm:max-w-md sm:rounded-lg"
+        className="flex w-full flex-col gap-3 max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-t-lg border bg-popover px-5 py-5 shadow-xl sm:max-w-md sm:rounded-lg"
       >
         <h2 id="settings-title" className="text-base font-semibold">
           Settings
         </h2>
+        <ThemeSettings />
         <label className="flex min-h-11 items-start gap-3 text-sm">
           <input
             type="checkbox"

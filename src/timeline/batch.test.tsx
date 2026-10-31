@@ -22,7 +22,7 @@ const state = () => useProjectStore.getState();
 const view = () => useTimelineViewStore.getState();
 const LANES = { left: 112, top: 528 };
 const AREA = { left: 0, top: 500, right: 1200, bottom: 800 };
-const SCROLLER = { left: 112, top: 500, right: 1200, bottom: 800 };
+const SCROLLER = { left: 0, top: 500, right: 1200, bottom: 800 };
 const rect = (b: Partial<DOMRect>) =>
   ({
     left: 0,
@@ -143,6 +143,8 @@ describe("dragging a media card to the timeline (pointer events)", () => {
     fireEvent.pointerDown(card("vid2.mp4"), { button: 0, clientX: 40, clientY: 200 });
     fireEvent.pointerMove(window, { clientX: 60, clientY: 220 });
     expect(screen.getByTestId("drag-chip")).toHaveTextContent("vid2.mp4");
+    expect(screen.getByTestId("drag-thumbnail")).toBeInTheDocument();
+    expect(useDragDropStore.getState().dragging?.mediaType).toBe("video");
     expect(screen.queryByTestId("drop-ghost")).not.toBeInTheDocument(); // not over the timeline yet
 
     fireEvent.pointerMove(window, { clientX: xAt(3.01), clientY: lane(1) });
@@ -169,11 +171,11 @@ describe("dragging a media card to the timeline (pointer events)", () => {
     expect(useUiStore.getState().notice).toBe("Audio goes on an audio track");
 
     fireEvent.pointerDown(card("vid.mp4"), { button: 0, clientX: 40, clientY: 200 });
-    fireEvent.pointerMove(window, { clientX: xAt(0), clientY: lane(3) + 20 }); // below the three lanes
-    expect(screen.getByTestId("new-track-row")).toHaveTextContent("New video track");
-    fireEvent.pointerUp(window, { clientX: xAt(0), clientY: lane(3) + 20 });
+    fireEvent.pointerMove(window, { clientX: xAt(0), clientY: lane(2) + 20 }); // below the three lanes
+    expect(screen.getByTestId("new-track-row")).toHaveTextContent("New video layer");
+    fireEvent.pointerUp(window, { clientX: xAt(0), clientY: lane(2) + 20 });
     expect(state().project.tracks).toHaveLength(4);
-    expect(state().project.tracks[3].clips).toHaveLength(1);
+    expect(state().project.tracks[2].clips).toHaveLength(1);
   });
 
   it("a click (no movement), Escape, or a drop outside the timeline places nothing", async () => {
@@ -249,7 +251,7 @@ describe("timeline zoom", () => {
     const zoomIn = new WheelEvent("wheel", {
       deltaY: -40,
       ctrlKey: true,
-      clientX: SCROLLER.left + 300,
+      clientX: SCROLLER.left + 112 + 300,
       cancelable: true,
       bubbles: true,
     });

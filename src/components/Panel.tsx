@@ -6,18 +6,22 @@ export function Panel({
   actions,
   className,
   children,
+  headerClassName,
 }: {
   title: string;
   actions?: ReactNode;
   className?: string;
   children: ReactNode;
+  headerClassName?: string;
 }) {
   return (
     <section
       aria-label={title}
       className={cn("flex min-h-0 min-w-0 flex-col border-border bg-surface-1", className)}
     >
-      <header className="flex h-10 shrink-0 items-center justify-between border-b px-3">
+      <header
+        className={cn("flex h-10 shrink-0 items-center justify-between border-b px-3", headerClassName)}
+      >
         <h2 className="text-xs font-medium tracking-wide text-text-muted uppercase">{title}</h2>
         {actions}
       </header>

@@ -1,3 +1,6 @@
+import { useCanvasViewStore } from "@/store/canvasView";
+import { useUiStore } from "@/store/ui";
+import { useTimelineViewStore } from "@/store/timelineView";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "@/App";
@@ -26,6 +29,8 @@ const layerOpacity = (v: HTMLVideoElement) => v.parentElement!.style.opacity;
 const visibleVideo = () => videos().find((v) => layerOpacity(v) === "1");
 
 beforeEach(() => {
+  useCanvasViewStore.getState().reset();
+  useUiStore.setState({ transformDraft: null });
   useProjectStore.setState({ project: createProject(), past: [], future: [] });
   useSelectionStore.setState({ selectedClipIds: [] });
   usePlaybackStore.setState({ playhead: 0, playing: false, mediaErrors: {} });
@@ -128,5 +133,60 @@ describe("Preview", () => {
     seek(3);
     await userEvent.click(screen.getByRole("button", { name: /Go to start/ }));
     expect(usePlaybackStore.getState().playhead).toBe(0);
+  });
+});
+
+describe("canvas view zoom", () => {
+  it("Ctrl+wheel over a selected clip zooms the view without editing the clip or timeline", () => {
+    load(place(IDS.vid, IDS.v1, 0, "selected", 8));
+    useSelectionStore.setState({ selectedClipIds: ["selected"] });
+    const before = useProjectStore.getState().project,
+      pps = useTimelineViewStore.getState().pps;
+    render(<Preview />);
+    const viewport = document.querySelector<HTMLElement>("[data-canvas-viewport]")!;
+    viewport.getBoundingClientRect = () => ({
+      left: 100,
+      top: 50,
+      width: 800,
+      height: 600,
+      right: 900,
+      bottom: 650,
+      x: 100,
+      y: 50,
+      toJSON: () => ({}),
+    });
+    const event = new WheelEvent("wheel", {
+      deltaY: -100,
+      ctrlKey: true,
+      clientX: 500,
+      clientY: 350,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => screen.getByTestId("preview-stage").dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(true);
+    expect(useCanvasViewStore.getState().zoom).toBeGreaterThan(1);
+    expect(useProjectStore.getState().project).toBe(before);
+    expect(useProjectStore.getState().past).toHaveLength(0);
+    expect(useUiStore.getState().transformDraft).toBeNull();
+    expect(useTimelineViewStore.getState().pps).toBe(pps);
+    const plain = new WheelEvent("wheel", { deltaY: 100, bubbles: true, cancelable: true });
+    act(() => viewport.dispatchEvent(plain));
+    expect(plain.defaultPrevented).toBe(false);
+  });
+  it("supports zoom presets, middle-button pan, and Fit without changing the project", () => {
+    render(<Preview />);
+    const before = useProjectStore.getState().project;
+    fireEvent.change(screen.getByLabelText("Canvas zoom"), { target: { value: "2" } });
+    expect(useCanvasViewStore.getState().zoom).toBe(2);
+    const viewport = document.querySelector<HTMLElement>("[data-canvas-viewport]")!;
+    fireEvent.pointerDown(viewport, { button: 1, clientX: 200, clientY: 200, pointerId: 1 });
+    fireEvent.pointerMove(viewport, { clientX: 230, clientY: 180, pointerId: 1 });
+    fireEvent.pointerUp(viewport, { button: 1, pointerId: 1 });
+    expect(useCanvasViewStore.getState().x).toBe(30);
+    expect(useCanvasViewStore.getState().y).toBe(-20);
+    fireEvent.click(screen.getByRole("button", { name: "Fit canvas to preview" }));
+    expect(useCanvasViewStore.getState()).toMatchObject({ zoom: 1, x: 0, y: 0 });
+    expect(useProjectStore.getState().project).toBe(before);
   });
 });

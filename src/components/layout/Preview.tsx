@@ -1,3 +1,5 @@
+import { useCanvasViewStore } from "@/store/canvasView";
+import { CanvasZoomControls } from "@/components/preview/CanvasZoomControls";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MonitorPlay } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
@@ -59,6 +61,30 @@ const percent = (shareOfStage: number) => Number((shareOfStage * 100).toFixed(2)
 
 export function Preview() {
   const project = useProjectStore((s) => s.project);
+  const canvasZoom = useCanvasViewStore((s) => s.zoom);
+  const canvasX = useCanvasViewStore((s) => s.x),
+    canvasY = useCanvasViewStore((s) => s.y);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const panDrag = useRef<{ pointer: number; x: number; y: number; panX: number; panY: number } | null>(null);
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const wheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.target instanceof Element && e.target.closest("[data-canvas-zoom-controls]")) return;
+      const r = el.getBoundingClientRect();
+      const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? r.height : 1);
+      const state = useCanvasViewStore.getState();
+      state.setZoom(state.zoom * Math.exp(-Math.max(-400, Math.min(400, delta)) * 0.002), {
+        x: e.clientX - r.left - r.width / 2,
+        y: e.clientY - r.top - r.height / 2,
+      });
+    };
+    el.addEventListener("wheel", wheel, { passive: false, capture: true });
+    return () => el.removeEventListener("wheel", wheel, true);
+  }, []);
   const playing = usePlaybackStore((s) => s.playing);
   const full = useUiStore((s) => s.previewFull);
   useEffect(() => {
@@ -268,11 +294,47 @@ export function Preview() {
       aria-label="Preview"
       data-full={full || undefined}
       className={cn(
-        "flex min-h-0 min-w-0 flex-col bg-bg",
+        // Keep canvas handles/zoom controls inside the preview, below app dialogs.
+        "isolate flex min-h-0 min-w-0 flex-col bg-bg",
         full ? "fixed inset-0 z-50" : "lg:col-start-2 lg:row-start-1",
       )}
     >
-      <div className="min-h-0 flex-1 p-3" style={{ containerType: "size" }}>
+      <div
+        ref={viewportRef}
+        data-canvas-viewport
+        className="relative min-h-0 flex-1 overflow-hidden p-3"
+        style={{ containerType: "size" }}
+        onPointerDownCapture={(e) => {
+          if (e.button !== 1) return;
+          e.preventDefault();
+          e.stopPropagation();
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+          const view = useCanvasViewStore.getState();
+          panDrag.current = { pointer: e.pointerId, x: e.clientX, y: e.clientY, panX: view.x, panY: view.y };
+        }}
+        onPointerMoveCapture={(e) => {
+          const drag = panDrag.current;
+          if (!drag || e.pointerId !== drag.pointer) return;
+          e.preventDefault();
+          e.stopPropagation();
+          useCanvasViewStore.getState().pan(drag.panX + e.clientX - drag.x, drag.panY + e.clientY - drag.y);
+        }}
+        onPointerUpCapture={(e) => {
+          if (panDrag.current?.pointer === e.pointerId) {
+            panDrag.current = null;
+            e.preventDefault();
+            e.stopPropagation();
+            e.currentTarget.releasePointerCapture?.(e.pointerId);
+          }
+        }}
+        onPointerCancelCapture={() => {
+          panDrag.current = null;
+        }}
+        onLostPointerCapture={() => {
+          panDrag.current = null;
+        }}
+      >
+        <CanvasZoomControls />
         <div className="flex h-full w-full items-center justify-center">
           <div
             data-testid="preview-stage"
@@ -284,6 +346,8 @@ export function Preview() {
             }}
             style={{
               aspectRatio: ratio,
+              transform: `translate(${canvasX}px, ${canvasY}px) scale(${canvasZoom})`,
+              transformOrigin: "center",
               width: `min(100cqw, calc(100cqh * ${ratio}))`,
               backgroundColor,
               containerType: "size",
